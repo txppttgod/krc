@@ -422,6 +422,86 @@ check("club deleted, pilots solo, points kept", cid2 not in bot.S["clubs"] and a
 c = tap(2, f"oc:del:{cid2}"); check("deleting twice is safe", "Клубы" in texts(c))
 check("log kept", len(S()["log"]) > 5)
 
+# ---------- дедлайн, протесты, повтор видео ----------
+bot.load_state(); bot.S["stages"]["3"]["state"] = "done"; bot.save_state()  # пилоты этапа 3 едут теперь в этапе 5
+tap(2, "st:new"); tap(2, "sd:qual"); tap(2, "sd:size"); tap(2, "sd:size"); tap(2, "sd:dl"); tap(2, "sd:pw")
+c = tap(2, "sd:ok")
+st5 = "5"
+check("stage deadline and protest settings", S()["stages"][st5]["dl"] == 30 and S()["stages"][st5]["pw"] == 10 and "Дедлайн" in texts(c))
+for j in (11, 12, 13):
+    tap(2, f"sj:{st5}:add"); dm(2, f"@user{j}")
+tap(2, f"sa:{st5}:open")
+for i in (101, 102, 103, 104):
+    tap(i, f"rg:{st5}")
+bot.load_state(); bot.S["stages"]["3"]["state"] = "run"; bot.save_state()
+c = tap(2, f"sa:{st5}:br"); check("two stages cannot run at once", "два этапа" in texts(c) and S()["stages"][st5]["state"] == "reg")
+bot.load_state(); bot.S["stages"]["3"]["state"] = "done"; bot.save_state()
+c = tap(2, f"sa:{st5}:br")
+check("pair message shows deadline", any("На заезд 30 мин" in p.get("text", "") for m, p in c))
+bot.load_state(); s5 = bot.S["stages"][st5]; m5 = bot.mget(s5, "U1-1"); A5, B5 = m5["pa"], m5["pb"]
+m5["open"] -= 16 * 60; bot.save_state()
+calls.clear(); bot.load_state(); bot.deadlines(time.time()); bot.save_state()
+check("half-time reminder to pilots", len([p for m, p in calls if "осталось" in p.get("text", "")]) == 2)
+bot.load_state(); bot.mget(bot.S["stages"][st5], "U1-1")["open"] -= 20 * 60; bot.save_state()
+calls.clear(); bot.load_state(); bot.deadlines(time.time()); bot.save_state()
+check("deadline -> organizers choose", any(f"mx:{st5}:U1-1" == x for x in btns(calls)) and any(f"mr:{st5}:U1-1:a" == x for x in btns(calls)))
+calls.clear(); bot.load_state(); bot.deadlines(time.time()); check("deadline alert once", not calls)
+c = tap(2, f"mx:{st5}:U1-1"); check("organizer extends deadline", bot.mget(S()["stages"][st5], "U1-1")["ext"] == 30)
+c = dm(A5, video={"file_id": "e1", "file_unique_id": "E1"}); tap(A5, "up:lead:a")
+c = dm(A5, video={"file_id": "e1b", "file_unique_id": "E1"}); check("same video twice in one upload refused", "то же самое видео" in texts(c))
+dm(A5, video={"file_id": "e2", "file_unique_id": "E2"}); tap(A5, "up:send")
+m52 = bot.mget(S()["stages"][st5], "U1-2")
+c = dm(m52["pa"], video={"file_id": "x", "file_unique_id": "E2"}); check("video reused from another pair refused", "уже сдавали" in texts(c))
+tap(11, f"jv:{st5}:U1-1:0:a"); c = tap(12, f"jv:{st5}:U1-1:0:a")
+check("loser gets protest button, winner not", any(f"pr:{st5}:U1-1" == x for x in btns([("x", p) for p in to(c, B5)]))
+      and not any(x.startswith("pr:") for x in btns([("x", p) for p in to(c, A5)])))
+c = tap(A5, f"pr:{st5}:U1-1"); check("winner cannot protest", "только проигравший" in texts(c))
+tap(B5, f"pr:{st5}:U1-1"); c = dm(B5, "Соперник срезал зону")
+check("protest sent to judges", any(f"pv:{st5}:U1-1:omt" == x for x in btns(c)) and S()["stages"][st5]["matches"][0]["protest"]["why"] == "Соперник срезал зону")
+c = tap(B5, f"pr:{st5}:U1-1"); check("one protest at a time", "уже подан" in texts(c))
+tap(11, f"pv:{st5}:U1-1:omt"); c = tap(12, f"pv:{st5}:U1-1:omt")
+m5 = bot.mget(S()["stages"][st5], "U1-1")
+check("protest accepted -> OMT rerun", not m5["done"] and m5["omt"] == 1 and m5["protests"] and not m5.get("protest")
+      and any("Протест принят" in p.get("text", "") for p in to(c, A5)))
+dm(B5, video={"file_id": "e3", "file_unique_id": "E3"}); tap(B5, "up:lead:a"); dm(B5, video={"file_id": "e4", "file_unique_id": "E4"}); tap(B5, "up:send")
+tap(11, f"jv:{st5}:U1-1:1:a"); tap(13, f"jv:{st5}:U1-1:1:a")
+tap(B5, f"pr:{st5}:U1-1"); dm(B5, "Всё равно не согласен")
+tap(11, f"pv:{st5}:U1-1:keep"); c = tap(13, f"pv:{st5}:U1-1:omt")
+check("split protest waits for the third judge", not S()["stages"][st5]["matches"][0]["protest"]["res"])
+c = tap(12, f"pv:{st5}:U1-1:keep")
+m5 = bot.mget(S()["stages"][st5], "U1-1")
+check("protest rejected -> decision stays", m5["done"] and m5["w"] == A5 and m5["protest"]["res"] == "keep")
+bot.load_state(); m52 = bot.mget(bot.S["stages"][st5], "U1-2"); bot.set_result(bot.S["stages"][st5], m52, "a"); bot.save_state()
+c = tap(m52["l"], f"pr:{st5}:U1-2"); check("no protest after technical result", "вышло" in texts(c))
+d5 = [x for x in bot.public_data()["stages"] if x["id"] == st5][0]
+check("public data: deadline and protest", d5["dl"] == 30 and d5["matches"][0]["protest"]["res"] == "keep")
+
+# ---------- новости, очки, сезоны ----------
+tap(2, "nw:add"); c = dm(2, "Этап 6 переносится на субботу")
+check("news published and sent to pilots", S()["news"][0]["text"].startswith("Этап 6") and len([p for m, p in c if "переносится" in p.get("text", "")]) >= 20)
+check("news in public data", bot.public_data()["news"][0]["text"].startswith("Этап 6"))
+tap(2, "nw:rm:0"); check("news removed", not S()["news"])
+tap(2, "pt:edit"); c = dm(2, "1 2 3"); check("points need 8 numbers", "ровно 8" in texts(c))
+c = dm(2, "50 40 30 20 10 5 2 1")
+bot.load_state(); s1 = bot.S["stages"]["1"]
+check("points table changed and season recomputed", bot.S["points"][0] == [1, 50] and s1["pts"][str(bot.mget(s1, "U4-1")["w"])] == 50)
+c = tap(2, "ss"); check("organizer cannot end season", "ss:end" not in btns(c))
+c = tap(1, "ss:end"); check("season end blocked while stages run", "заверши все идущие" in texts(c))
+bot.load_state()
+for sid in ("3", "4", "5"):
+    bot.S["stages"][sid]["state"] = "done"
+bot.save_state()
+tap(1, "ss:name"); dm(1, "Осень 2026")
+c = tap(1, "ss:end"); check("season end asks confirmation", "ss:yes" in btns(c))
+champ = bot.public_data()["pilots"][0]["nick"]
+c = tap(1, "ss:yes")
+bot.load_state()
+check("season archived", bot.S["seasons"][-1]["name"] == "Осень 2026" and bot.S["seasons"][-1]["pilots"][0][0] == champ
+      and bot.S["season"]["n"] == 2 and any("завершён" in p.get("text", "") for m, p in c))
+check("new season starts from zero", not bot.season_points() and all(p["pts"] == 0 for p in bot.public_data()["pilots"]))
+tap(2, "st:new"); tap(2, "sd:ok")
+check("new stages belong to new season", bot.S["stages"] and S()["stages"]["6"]["season"] == 2)
+
 print("\n".join(checks))
 failed = sum(x.startswith("FAIL") for x in checks)
 print("FAILED:", failed, "of", len(checks))

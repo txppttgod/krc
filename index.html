@@ -93,6 +93,13 @@ td,th{padding:8px 6px;border-top:1px solid var(--line);text-align:left}
 th{color:var(--muted);font-weight:500;font-size:12px;border-top:0}
 td.n{text-align:right;font-family:var(--race)}
 .empty{color:var(--muted);text-align:center;padding:30px 10px}
+.news{border-left:3px solid var(--accent);padding:4px 0 4px 10px;margin:8px 0}
+.news .d{font-size:11px;color:var(--muted)}
+.row.click{cursor:pointer}
+tr.click{cursor:pointer}
+.stat3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0}
+.stat3 div{background:var(--card2);border-radius:12px;padding:10px;text-align:center}
+.stat3 b{display:block;font-family:var(--race);font-weight:400;font-size:20px}
 </style>
 </head>
 <body>
@@ -138,7 +145,7 @@ async function load() {
   try {
     const r = await fetch(Q.get('data') || BOT_URL + '/data?t=' + Date.now(), { cache: 'no-store' });
     D = await r.json();
-    document.getElementById('status').textContent = 'обновлено в ' + new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    document.getElementById('status').textContent = (D.season ? D.season.name + ' · ' : '') + 'обновлено в ' + new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
   } catch (e) {
     document.getElementById('status').textContent = 'нет связи с ботом — попробуй ↻ через минуту';
     if (!D) return;
@@ -168,6 +175,7 @@ const badge = st => `<span class="badge ${st.state}">${STATE[st.state]}</span>`;
 const pilotLine = (p, i, pts, sub) => `<div class="row"><span class="pl ${i < 3 ? 'p' + (i + 1) : ''}">${i + 1}</span>
   <div class="nm">${esc(p.nick || p.name)}${sub ? `<small>${esc(sub)}</small>` : ''}</div><span class="pt">${pts}</span></div>`;
 
+const curSeason = () => (D.season && D.season.n) || 1;
 function mainStage() {
   const live = D.stages.filter(s => ['reg', 'qual', 'run'].includes(s.state));
   return live[0] || D.stages.filter(s => s.state === 'done').slice(-1)[0] || null;
@@ -177,6 +185,8 @@ function renderHome() {
   let h = `<div class="card hero"><div class="big">Khinkali Racing Championship</div>
     <div class="note" style="margin-top:6px">Чемпионат по дрифту в CarX Drift Racing 3 · личный и клубный зачёт</div>
     ${about.text ? `<div class="text" style="margin-top:10px">${esc(about.text)}</div>` : ''}</div>`;
+  if ((D.news || []).length) h += `<h3>📰 Новости</h3><div class="card">${D.news.slice(0, 3).map(n => `<div class="news">
+    <div class="d">${new Date(n.t * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}</div><div class="text">${esc(n.text)}</div></div>`).join('')}</div>`;
   if (st) {
     h += `<div class="card"><div class="note">${st.state === 'done' ? 'Последний этап' : 'Сейчас'}</div>
       <h3 style="margin:4px 0">${esc(st.title)} ${badge(st)}</h3>
@@ -191,12 +201,14 @@ function renderHome() {
   document.getElementById('home').innerHTML = h;
 }
 function renderStages() {
-  const list = D.stages.filter(s => s.state !== 'draft');
-  document.getElementById('stages').innerHTML = `<h2>Этапы</h2>` + (list.length ? list.map(s => `<div class="card" onclick="openStage('${s.id}')" style="cursor:pointer">
+  const all = D.stages.filter(s => s.state !== 'draft'), list = all.filter(s => (s.season || 1) === curSeason()), old = all.filter(s => (s.season || 1) !== curSeason());
+  const card = s => `<div class="card" onclick="openStage('${s.id}')" style="cursor:pointer">
     <div style="display:flex;justify-content:space-between;gap:8px"><b>${esc(s.title)}</b>${badge(s)}</div>
     <div class="note">${s.date ? esc(s.date) + ' · ' : ''}топ-${s.size} · ${s.de ? 'лузер-сетка' : 'на вылет'} · ${s.qual ? 'квалификация' : 'без квалификации'} · судей ${s.jn}</div>
     ${s.state === 'done' && s.places.length ? `<div style="margin-top:6px">🥇 ${esc(s.places[0][0].nick)}${s.places[1] ? ' · 🥈 ' + esc(s.places[1][0].nick) : ''}${s.places[2] ? ' · 🥉 ' + esc(s.places[2][0].nick) : ''}</div>` : ''}
-  </div>`).join('') : '<div class="empty">Этапов пока нет</div>');
+  </div>`;
+  document.getElementById('stages').innerHTML = `<h2>Этапы · ${esc(D.season ? D.season.name : '')}</h2>` + (list.length ? list.map(card).join('') : '<div class="empty">В этом сезоне этапов пока нет</div>')
+    + (old.length ? `<h3>Прошлые сезоны</h3>` + old.reverse().map(card).join('') : '');
 }
 function openStage(id) { stageId = id; const st = D.stages.find(s => s.id === id); stageTab = st && (st.state === 'run' || st.state === 'done') ? 'bracket' : 'info'; renderStage(); show('stage'); }
 function setTab(t) { stageTab = t; renderStage(); }
@@ -213,6 +225,7 @@ function renderStage() {
     h += `<div class="card">${st.date ? `<div>📅 ${esc(st.date)}</div>` : ''}<div>Сетка: топ-${st.size}, ${st.de ? 'с лузер-сеткой' : 'на вылет'}, заезд за 3-е место есть всегда</div>
       <div>Квалификация: ${st.qual ? 'да, по видео соло-заезда' : 'нет, посев по очкам сезона или жребием'}</div>
       <div>Судей: ${st.jn}${st.judges.length ? ' — ' + st.judges.map(esc).join(', ') : ''}</div>
+      <div>Время на заезд: ${st.dl ? st.dl + ' мин' : 'без ограничения'} · протесты: ${st.pw ? 'в течение ' + st.pw + ' мин после решения' : 'нет'}</div>
       ${st.state === 'reg' ? link('✋ Записаться', 'rg_' + st.id) : ''}</div>`;
     ['q', 'b'].forEach(k => { const tz = st.tz[k]; if (!tz) return;
       h += `<h3>📋 ТЗ ${k === 'q' ? 'квалификации' : 'парных заездов'}</h3><div class="card"><div class="text">${esc(tz.text)}</div>
@@ -335,6 +348,13 @@ function openMatch(sid, mid) {
     <div class="vs"><div class="${m.w === 'a' ? 'w' : ''}"><b>${nm(m.a)}</b><span class="note">${esc((m.a && m.a.club) || 'соло')}${m.sa ? ' · посев ' + m.sa : ''}</span></div>
     <span class="note">vs</span><div class="${m.w === 'b' ? 'w' : ''}"><b>${nm(m.b)}</b><span class="note">${esc((m.b && m.b.club) || 'соло')}${m.sb ? ' · посев ' + m.sb : ''}</span></div></div>`;
   h += `<div class="note">${m.bye ? 'Автопроход — соперника не было.' : m.done ? (m.manual ? 'Результат поставил организатор.' : 'Пара решена судьями.') : m.judging ? 'Заезд у судей, ждём решения.' : m.live ? 'Пилоты катают — ждём видео.' : 'Пара ещё не определилась.'}${m.omt ? ` OMT: ${m.omt}.` : ''}</div>`;
+  if (m.until && !m.done) {
+    const left = Math.round((m.until * 1000 - Date.now()) / 60000);
+    h += `<div class="note" style="margin-top:6px">⏳ ${left > 0 ? 'На заезд осталось ~' + left + ' мин' : 'Время на заезд вышло — решает организатор'}</div>`;
+  }
+  if (m.protest) h += `<h3>📣 Протест</h3><div class="card" style="padding:10px 14px"><div>${esc(m.protest.by)}: «${esc(m.protest.why)}»</div>
+    <div class="note">${m.protest.res === 'keep' ? 'Отклонён — решение осталось' : m.protest.res === 'omt' ? 'Принят — перезаезд' : 'На рассмотрении у судей'}</div>
+    ${m.protest.votes.map(([j, v]) => `<div class="vote"><span>👨‍⚖️ ${esc(j)}</span><b>${v === 'omt' ? 'OMT' : 'оставить'}</b></div>`).join('')}</div>`;
   m.tries.forEach((t, i) => {
     h += `<h3>Попытка ${i + 1}: ${esc(res[t.res] || t.res)}</h3><div class="card" style="padding:10px 14px">${t.votes.map(([j, v]) => `<div class="vote"><span>👨‍⚖️ ${esc(j)}</span><b>${esc(res[v] || v)}</b></div>`).join('') || '<span class="note">голосов нет</span>'}</div>`;
   });
@@ -373,13 +393,30 @@ async function swap(sid) {
 
 // ---------- Таблицы ----------
 function renderPilots() {
-  const done = D.stages.filter(s => s.state === 'done');
-  document.getElementById('pilots').innerHTML = `<h2>Личный зачёт</h2>` + (D.pilots.length ? `<div class="card" style="overflow-x:auto"><table>
+  const done = D.stages.filter(s => s.state === 'done' && (s.season || 1) === curSeason());
+  document.getElementById('pilots').innerHTML = `<h2>Личный зачёт · ${esc(D.season ? D.season.name : '')}</h2>` + (D.pilots.length ? `<div class="card" style="overflow-x:auto"><table>
     <tr><th>#</th><th>Пилот</th>${done.map(s => `<th style="text-align:right">Э${s.n}</th>`).join('')}<th style="text-align:right">Очки</th></tr>
-    ${D.pilots.map((p, i) => `<tr><td>${i + 1}</td><td>${esc(p.nick)}<div class="note">${esc(p.club || 'соло')}</div></td>
+    ${D.pilots.map((p, i) => `<tr class="click" onclick="openPilot(${p.id})"><td>${i + 1}</td><td>${esc(p.nick)}<div class="note">${esc(p.club || 'соло')}</div></td>
       ${done.map(s => `<td class="n" style="color:var(--muted)">${p.stages[s.id] ?? '·'}</td>`).join('')}<td class="n">${p.pts}</td></tr>`).join('')}</table></div>
     <p class="note">Очки за итоговое место на этапе: ${D.points.map(([mx, pt], i) => (i && D.points[i - 1][0] + 1 < mx ? (D.points[i - 1][0] + 1) + '–' : '') + mx + ' — ' + pt).join(' · ')}.</p>`
-    : '<div class="empty">Пилотов пока нет.</div>');
+    : '<div class="empty">Пилотов пока нет.</div>') + seasonsArchive();
+}
+function seasonsArchive() {
+  if (!(D.seasons || []).length) return '';
+  return `<h3>🏆 Прошлые сезоны</h3>` + D.seasons.map(s => `<div class="card"><b>${esc(s.name)}</b>
+    ${s.pilots.slice(0, 3).map((p, i) => `<div class="row"><span class="pl p${i + 1}">${i + 1}</span><div class="nm">${esc(p[0])}<small>${esc(p[1] || 'соло')}</small></div><span class="pt">${p[2]}</span></div>`).join('')}
+    ${s.clubs.length ? `<div class="note" style="margin-top:6px">Лучший клуб: ${esc(s.clubs[0][0])} — ${s.clubs[0][1]}</div>` : ''}</div>`).join('');
+}
+function openPilot(id) {
+  const p = D.pilots.find(x => x.id === id); if (!p) return;
+  const place = D.pilots.indexOf(p) + 1;
+  document.getElementById('sheetBody').innerHTML = `<h2 style="margin:0">${esc(p.nick)}</h2><div class="note">${esc(p.club || 'соло')} · ${esc(D.season ? D.season.name : '')}</div>
+    <div class="stat3"><div><span class="note">Место</span><b>${p.pts ? place : '—'}</b></div><div><span class="note">Очки</span><b>${p.pts}</b></div>
+      <div><span class="note">Пары</span><b>${p.w}–${p.l}</b></div></div>
+    ${p.hist.length ? `<div class="card">${p.hist.map(h => `<div class="row"><span class="pl ${h[1] <= 3 ? 'p' + h[1] : ''}">${h[1]}</span><div class="nm">${esc(h[0])}</div><span class="pt">+${h[2]}</span></div>`).join('')}</div>`
+      : '<p class="note">В этом сезоне ещё нет завершённых этапов.</p>'}
+    <button class="btn ghost" onclick="closeSheet()">Закрыть</button>`;
+  document.getElementById('sheet').classList.add('open');
 }
 function renderClubs() {
   document.getElementById('clubs').innerHTML = `<h2>Клубный зачёт</h2>` + (D.clubs.length ? D.clubs.map((c, i) => `<div class="card">
@@ -397,7 +434,8 @@ function renderRules() {
     <h3>Как устроен чемпионат</h3><div class="card text">• Пилот регистрируется в боте соло или в составе клуба (до ${D.club_max} пилотов).
 • Квалификация (если есть) — видео соло-заезда по ТЗ, судьи проверяют счёт.
 • Парные заезды — два видео: ведёт один, потом другой. Сдаёт любой из пары.
-• Судьи (1 или 3) решают: победа или OMT — перезаезд. При трёх судьях решают двое из трёх. Голоса публичные.
+• Судьи (1 или 3) решают: победа или OMT — перезаезд. При трёх судьях решают двое из трёх. Все судьи равны, голоса публичные.
+• На этапе может быть время на заезд и окно для протеста — их выбирает организатор. Протест пересматривают те же судьи.
 • Сетка топ-16/32/64, по выбору с лузер-сеткой, заезд за 3-е место есть всегда.</div>`;
 }
 
