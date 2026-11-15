@@ -847,7 +847,7 @@ def org_menu(uid):
     sts = stage_list()
     rows = [[b(f"{'📝' if st['state'] == 'draft' else '🏁'} {st['title']} · {STATE_RU[st['state']]}", f"sm:{st['id']}")]
             for st in sts[-10:]]
-    rows += [[b("➕ Новый этап", "st:new")], [b("📜 Регламент", "ct:rules"), b("ℹ️ О чемпионате", "ct:about")],
+    rows += [[b("➕ Новый этап", "st:new"), b("👥 Клубы", "oc:list")], [b("📜 Регламент", "ct:rules"), b("ℹ️ О чемпионате", "ct:about")],
              [b("👔 Организаторы", "og:list")] if is_owner(uid) else None, app_row()]
     send(uid, "⚙️ Организатор: этапы, регламент, судьи.", kb(rows))
 
@@ -1334,6 +1334,24 @@ def org_cb(cq, uid, p):
         rows = [[b(f"✖️ {nick(x)}", f"og:rm:{x}")] for x in S["orgs"]] + [[b("➕ Добавить", "og:add")]]
         return send(uid, "👔 Организаторы (владельцы — всегда):\n" + ("\n".join(f"• {mention(x)}" for x in S["orgs"]) or "Пока никого."),
                     kb(rows))
+    if k == "oc":
+        answer(cq)
+        c = S["clubs"].get(p[2]) if len(p) > 2 else None
+        if p[1] == "ask" and c:
+            return send(uid, f"Удалить клуб {c['name']}? Пилоты станут соло, их очки останутся у них.",
+                        kb([[b("🗑 Да, удалить", f"oc:del:{c['id']}"), b("✖️ Нет", "oc:list")]]))
+        if p[1] == "del" and c:
+            S["clubs"].pop(c["id"], None)
+            for x in c["members"]:
+                if pilot(x):
+                    pilot(x)["club"] = None
+                send(x, f"👥 Организатор удалил клуб {c['name']}. Ты теперь выступаешь соло, твои очки остаются у тебя.")
+            if c["leader"] not in c["members"]:
+                send(c["leader"], f"👥 Организатор удалил твой клуб {c['name']}.")
+            log(uid, f"удалён клуб {c['name']}")
+            send(uid, f"✅ Клуб {c['name']} удалён.")
+        rows = [[b(f"🗑 {x['name']} ({len(x['members'])}/{CLUB_MAX})", f"oc:ask:{x['id']}")] for x in S["clubs"].values()]
+        return send(uid, "👥 Клубы — нажми, чтобы удалить:" if rows else "Клубов пока нет.", kb(rows + [[b("⬅️ Назад", "m:org")]]))
     if k == "sa":
         return stage_action(cq, uid, S["stages"].get(p[1]), p[2], p[3:] if len(p) > 3 else [])
     if k == "mr":

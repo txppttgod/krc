@@ -408,6 +408,18 @@ check("public clubs", {c_["name"] for c_ in d["clubs"]} == {"Khinkali", "Chacha 
 check("no telegram usernames in public data", "user101" not in json.dumps(d))
 check("rules in public data", d["content"]["rules"]["photos"] == [key])
 c = dm(150, "/start tz_9_q"); check("unknown stage deep link safe", True)
+
+# ---------- организатор удаляет клуб ----------
+c = tap(124, "oc:list"); check("non-org cannot list clubs for deletion", "для организаторов" in texts(c))
+c = tap(2, "oc:list"); check("org sees clubs to delete", f"oc:ask:{cid2}" in btns(c))
+c = tap(2, f"oc:ask:{cid2}"); check("delete asks confirmation", f"oc:del:{cid2}" in btns(c) and cid2 in S()["clubs"])
+members2 = list(S()["clubs"][cid2]["members"])
+pts_before = bot.season_points()
+c = tap(2, f"oc:del:{cid2}")
+bot.load_state()
+check("club deleted, pilots solo, points kept", cid2 not in bot.S["clubs"] and all(bot.S["pilots"][str(x)]["club"] is None for x in members2)
+      and bot.season_points() == pts_before and all(any("удалил клуб" in p.get("text", "") for p in to(c, x)) for x in members2))
+c = tap(2, f"oc:del:{cid2}"); check("deleting twice is safe", "Клубы" in texts(c))
 check("log kept", len(S()["log"]) > 5)
 
 print("\n".join(checks))
