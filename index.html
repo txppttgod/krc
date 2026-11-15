@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Khinkali Racing Championship</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Russo+One&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0d0d10;--card:#17171c;--card2:#202027;--line:#2c2c35;--text:#f2f2f4;--muted:#8c8c98;--accent:#e8452c;
+  --accent-soft:#3a1712;--ok:#2fbf71;--gold:#f5b942;--live:#e8452c;--judge:#f5b942;--race:'Russo One',system-ui,sans-serif}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+body{padding-bottom:calc(70px + env(safe-area-inset-bottom))}
+header{position:sticky;top:0;z-index:5;background:rgba(13,13,16,.95);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);
+  padding:10px 16px;display:flex;align-items:center;gap:10px}
+header .logo{width:34px;height:34px;border-radius:9px;background:var(--accent);display:flex;align-items:center;justify-content:center;
+  font-family:var(--race);font-size:13px;flex:none}
+header .t{font-family:var(--race);font-size:15px;line-height:1.1}
+header .s{font-size:11px;color:var(--muted)}
+header button{margin-left:auto;background:none;border:1px solid var(--line);color:var(--text);border-radius:10px;padding:6px 10px;cursor:pointer}
+main{max-width:980px;margin:0 auto;padding:12px 16px}
+section{display:none}section.on{display:block}
+h2{font-family:var(--race);font-weight:400;font-size:22px;margin:8px 0 12px}
+h3{font-family:var(--race);font-weight:400;font-size:17px;margin:18px 0 8px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.note{color:var(--muted);font-size:13px}
+.btn{display:block;text-align:center;margin-top:10px;padding:12px;border-radius:12px;background:var(--accent);color:#fff;
+  text-decoration:none;font-weight:600;border:0;width:100%;font-size:15px;cursor:pointer}
+.btn.ghost{background:none;border:1px solid var(--line);color:var(--text)}
+.btn.small{display:inline-block;width:auto;padding:8px 12px;margin:6px 6px 0 0;font-size:13px}
+.hero{background:linear-gradient(135deg,#2a1210 0%,var(--card) 70%);border-color:#4a1d16}
+.hero .big{font-family:var(--race);font-size:26px;line-height:1.1}
+.badge{display:inline-block;font-size:11px;padding:3px 8px;border-radius:20px;background:var(--card2);color:var(--muted);vertical-align:middle}
+.badge.reg{background:#14321f;color:var(--ok)}.badge.run,.badge.qual{background:var(--accent-soft);color:#ffb3a3}.badge.done{background:#2b2512;color:var(--gold)}
+.row{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line)}
+.row:first-child{border-top:0}
+.row .pl{font-family:var(--race);width:26px;text-align:center;color:var(--muted)}
+.row .pl.p1{color:var(--gold)}.row .pl.p2{color:#c9d1d9}.row .pl.p3{color:#d08a54}
+.row .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .nm small{display:block;color:var(--muted);font-size:12px}
+.row .pt{font-family:var(--race);font-size:17px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 12px}
+.chip{padding:7px 12px;border-radius:20px;border:1px solid var(--line);background:var(--card);color:var(--muted);font-size:13px;cursor:pointer}
+.chip.on{background:var(--accent-soft);border-color:#6a2a1e;color:#ffb3a3}
+.back{color:var(--muted);text-decoration:none;font-size:14px;display:inline-block;margin-bottom:4px}
+.text{white-space:pre-wrap}
+.photos img{width:100%;border-radius:12px;margin-top:10px;display:block}
+nav{position:fixed;bottom:0;left:0;right:0;z-index:6;display:flex;background:rgba(13,13,16,.97);border-top:1px solid var(--line);
+  padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;min-width:0;padding:8px 2px 10px;background:none;border:0;color:var(--muted);font-size:11px;cursor:pointer;
+  display:flex;flex-direction:column;align-items:center;gap:3px}
+nav button svg{width:22px;height:22px}
+nav button.on{color:var(--accent)}
+/* сетка в стиле Challonge */
+.bwrap{overflow:auto;border:1px solid var(--line);border-radius:14px;background:var(--card);margin:0 -4px;-webkit-overflow-scrolling:touch}
+.bcanvas{position:relative}
+.bcanvas svg{position:absolute;left:0;top:0;pointer-events:none}
+.bhead{position:absolute;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;white-space:nowrap}
+.bsec{position:absolute;font-family:var(--race);font-size:13px;color:var(--text)}
+.mc{position:absolute;width:176px;background:var(--card2);border:1px solid var(--line);border-radius:8px;overflow:hidden;cursor:pointer;font-size:13px}
+.mc .r{display:flex;align-items:center;height:26px;padding:0 8px 0 0;gap:6px;color:var(--muted)}
+.mc .r+.r{border-top:1px solid var(--line)}
+.mc .sd{width:24px;height:100%;display:flex;align-items:center;justify-content:center;background:#18181e;font-size:11px;color:var(--muted);flex:none}
+.mc .nk{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mc .r.w{color:var(--text);font-weight:600}
+.mc .r.w .sd{background:var(--accent);color:#fff}
+.mc .r.l .nk{text-decoration:line-through;opacity:.6}
+.mc .r .ic{font-size:11px}
+.mc.live{border-color:var(--live);box-shadow:0 0 0 1px var(--live) inset}
+.mc.judging{border-color:var(--judge);box-shadow:0 0 0 1px var(--judge) inset}
+.mc.bye{opacity:.45}
+.mc .tag{position:absolute;right:6px;top:-1px;font-size:9px;background:var(--live);color:#fff;padding:1px 5px;border-radius:0 0 5px 5px}
+.mc.judging .tag{background:var(--judge);color:#111}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--muted);margin:8px 0}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+.rlist .mc{position:relative;width:100%;margin-bottom:8px}
+.rlist .mc .r{height:34px;font-size:14px}
+/* шторка с деталями пары */
+.sheet-bg{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.6);display:none;align-items:flex-end;justify-content:center}
+.sheet-bg.open{display:flex}
+.sheet{width:100%;max-width:640px;max-height:86vh;overflow:auto;background:var(--card);border-radius:18px 18px 0 0;border-top:1px solid var(--line);
+  padding:16px 16px calc(20px + env(safe-area-inset-bottom))}
+.sheet .vs{display:flex;align-items:center;gap:10px;margin:8px 0}
+.sheet .vs div{flex:1;text-align:center;background:var(--card2);border-radius:12px;padding:10px}
+.sheet .vs div.w{border:1px solid var(--accent)}
+.sheet .vs b{display:block;font-family:var(--race);font-weight:400;font-size:17px}
+.vote{display:flex;justify-content:space-between;font-size:14px;padding:4px 0}
+select{background:var(--card2);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:9px;width:100%;margin-top:8px;font-size:14px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+td,th{padding:8px 6px;border-top:1px solid var(--line);text-align:left}
+th{color:var(--muted);font-weight:500;font-size:12px;border-top:0}
+td.n{text-align:right;font-family:var(--race)}
+.empty{color:var(--muted);text-align:center;padding:30px 10px}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">KRC</div>
+  <div><div class="t">Khinkali Racing Championship</div><div class="s" id="status">загрузка…</div></div>
+  <button onclick="load()" aria-label="Обновить">↻</button>
+</header>
+<main>
+  <section id="home"></section>
+  <section id="stages"></section>
+  <section id="stage"></section>
+  <section id="pilots"></section>
+  <section id="clubs"></section>
+  <section id="rules"></section>
+</main>
+<nav>
+  <button data-t="home" onclick="show('home')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>Главная</button>
+  <button data-t="stages" onclick="show('stages')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V4h11l-1 4h6v9H9l1-4H4"/></svg>Этапы</button>
+  <button data-t="pilots" onclick="show('pilots')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2"/><path d="M12 14v7M10 12l-6.7-2M14 12l6.7-2"/></svg>Пилоты</button>
+  <button data-t="clubs" onclick="show('clubs')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M15 20c0-2.2 1-4 3.5-4S22 17.8 22 20"/></svg>Клубы</button>
+  <button data-t="rules" onclick="show('rules')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14H6z"/><path d="M9 12h7M9 16h7M9 8h3"/></svg>Регламент</button>
+</nav>
+<div class="sheet-bg" id="sheet" onclick="if(event.target===this)closeSheet()"><div class="sheet" id="sheetBody"></div></div>
+<script>
+// Адрес бота на Render. Для проверки можно передать ?api=… или ?data=<файл с данными>
+const Q = new URLSearchParams(location.search);
+const BOT_URL = (Q.get('api') || 'https://krc-bot.onrender.com').replace(/\/$/, '');
+const TG = window.Telegram && Telegram.WebApp && Telegram.WebApp.initData ? Telegram.WebApp : null;
+if (TG) { try { TG.ready(); TG.expand(); TG.setHeaderColor('#0d0d10'); TG.setBackgroundColor('#0d0d10'); } catch (e) {} }
+let D = null, ME = { org: false }, cur = 'home', stageId = null, stageTab = 'bracket', bView = 'full';
+const esc = s => String(s ?? '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+const STATE = { draft: 'черновик', reg: 'регистрация', qual: 'квалификация', run: 'парные заезды', done: 'завершён' };
+const tme = arg => D && D.bot ? `https://t.me/${D.bot}?start=${arg}` : '#';
+function openTg(url) {
+  if (TG && TG.openTelegramLink) { try { TG.openTelegramLink(url); return; } catch (e) {} }
+  window.open(url, '_blank');
+}
+const link = (text, arg, cls = 'btn') => `<a class="${cls}" href="#" onclick="openTg('${tme(arg)}');return false">${text}</a>`;
+
+async function load() {
+  document.getElementById('status').textContent = 'загрузка…';
+  try {
+    const r = await fetch(Q.get('data') || BOT_URL + '/data?t=' + Date.now(), { cache: 'no-store' });
+    D = await r.json();
+    document.getElementById('status').textContent = 'обновлено в ' + new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  } catch (e) {
+    document.getElementById('status').textContent = 'нет связи с ботом — попробуй ↻ через минуту';
+    if (!D) return;
+  }
+  render();
+}
+async function loadMe() {
+  if (!TG) return;
+  try { const r = await api({ act: 'me' }); if (r.ok) { ME = r; render(); } } catch (e) {}
+}
+async function api(body) {
+  const r = await fetch(BOT_URL + '/api', { method: 'POST', body: JSON.stringify(Object.assign({ init: TG ? TG.initData : '' }, body)) });
+  return r.json();
+}
+function render() {
+  if (!D) return;
+  renderHome(); renderStages(); renderPilots(); renderClubs(); renderRules();
+  if (stageId) renderStage();
+}
+function show(name) {
+  cur = name;
+  document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === name));
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.t === name || (name === 'stage' && b.dataset.t === 'stages')));
+  window.scrollTo(0, 0);
+}
+const badge = st => `<span class="badge ${st.state}">${STATE[st.state]}</span>`;
+const pilotLine = (p, i, pts, sub) => `<div class="row"><span class="pl ${i < 3 ? 'p' + (i + 1) : ''}">${i + 1}</span>
+  <div class="nm">${esc(p.nick || p.name)}${sub ? `<small>${esc(sub)}</small>` : ''}</div><span class="pt">${pts}</span></div>`;
+
+function mainStage() {
+  const live = D.stages.filter(s => ['reg', 'qual', 'run'].includes(s.state));
+  return live[0] || D.stages.filter(s => s.state === 'done').slice(-1)[0] || null;
+}
+function renderHome() {
+  const st = mainStage(), about = D.content.about || {};
+  let h = `<div class="card hero"><div class="big">Khinkali Racing Championship</div>
+    <div class="note" style="margin-top:6px">Чемпионат по дрифту в CarX Drift Racing 3 · личный и клубный зачёт</div>
+    ${about.text ? `<div class="text" style="margin-top:10px">${esc(about.text)}</div>` : ''}</div>`;
+  if (st) {
+    h += `<div class="card"><div class="note">${st.state === 'done' ? 'Последний этап' : 'Сейчас'}</div>
+      <h3 style="margin:4px 0">${esc(st.title)} ${badge(st)}</h3>
+      <div class="note">${st.date ? esc(st.date) + ' · ' : ''}топ-${st.size} · ${st.de ? 'с лузер-сеткой' : 'на вылет'} · записано ${st.reg.length}</div>
+      <a class="btn ${st.state === 'reg' ? 'ghost' : ''}" href="#" onclick="openStage('${st.id}');return false">${st.state === 'run' || st.state === 'done' ? '🏁 Сетка этапа' : 'Подробнее об этапе'}</a>
+      ${st.state === 'reg' ? link('✋ Записаться на этап', 'rg_' + st.id) : ''}</div>`;
+  } else h += `<div class="card"><div class="note">Этапов пока нет — следи за новостями.</div></div>`;
+  if (D.pilots.some(p => p.pts)) h += `<h3>Личный зачёт</h3><div class="card">${D.pilots.slice(0, 5).map((p, i) => pilotLine(p, i, p.pts, p.club)).join('')}
+    <a class="btn ghost" href="#" onclick="show('pilots');return false">Вся таблица</a></div>`;
+  if (D.clubs.some(c => c.pts)) h += `<h3>Клубный зачёт</h3><div class="card">${D.clubs.slice(0, 5).map((c, i) => pilotLine({ nick: c.name }, i, c.pts, c.members.length + ' пил.')).join('')}</div>`;
+  h += link('🏎 Открыть бота: стать пилотом, клуб, заезды', 'menu', 'btn ghost');
+  document.getElementById('home').innerHTML = h;
+}
+function renderStages() {
+  const list = D.stages.filter(s => s.state !== 'draft');
+  document.getElementById('stages').innerHTML = `<h2>Этапы</h2>` + (list.length ? list.map(s => `<div class="card" onclick="openStage('${s.id}')" style="cursor:pointer">
+    <div style="display:flex;justify-content:space-between;gap:8px"><b>${esc(s.title)}</b>${badge(s)}</div>
+    <div class="note">${s.date ? esc(s.date) + ' · ' : ''}топ-${s.size} · ${s.de ? 'лузер-сетка' : 'на вылет'} · ${s.qual ? 'квалификация' : 'без квалификации'} · судей ${s.jn}</div>
+    ${s.state === 'done' && s.places.length ? `<div style="margin-top:6px">🥇 ${esc(s.places[0][0].nick)}${s.places[1] ? ' · 🥈 ' + esc(s.places[1][0].nick) : ''}${s.places[2] ? ' · 🥉 ' + esc(s.places[2][0].nick) : ''}</div>` : ''}
+  </div>`).join('') : '<div class="empty">Этапов пока нет</div>');
+}
+function openStage(id) { stageId = id; const st = D.stages.find(s => s.id === id); stageTab = st && (st.state === 'run' || st.state === 'done') ? 'bracket' : 'info'; renderStage(); show('stage'); }
+function setTab(t) { stageTab = t; renderStage(); }
+function setView(v) { bView = v; renderStage(); }
+
+function renderStage() {
+  const st = D.stages.find(s => s.id === stageId);
+  const el = document.getElementById('stage');
+  if (!st) { el.innerHTML = '<div class="empty">Этап не найден</div>'; return; }
+  const tabs = [['info', 'Об этапе'], ['bracket', 'Сетка'], st.qual ? ['qual', 'Квалификация'] : null, ['reg', 'Участники'], st.state === 'done' ? ['res', 'Итоги'] : null].filter(Boolean);
+  let h = `<a class="back" href="#" onclick="show('stages');return false">← Этапы</a><h2>${esc(st.title)} ${badge(st)}</h2>
+    <div class="chips">${tabs.map(([k, t]) => `<span class="chip ${stageTab === k ? 'on' : ''}" onclick="setTab('${k}')">${t}</span>`).join('')}</div>`;
+  if (stageTab === 'info') {
+    h += `<div class="card">${st.date ? `<div>📅 ${esc(st.date)}</div>` : ''}<div>Сетка: топ-${st.size}, ${st.de ? 'с лузер-сеткой' : 'на вылет'}, заезд за 3-е место есть всегда</div>
+      <div>Квалификация: ${st.qual ? 'да, по видео соло-заезда' : 'нет, посев по очкам сезона или жребием'}</div>
+      <div>Судей: ${st.jn}${st.judges.length ? ' — ' + st.judges.map(esc).join(', ') : ''}</div>
+      ${st.state === 'reg' ? link('✋ Записаться', 'rg_' + st.id) : ''}</div>`;
+    ['q', 'b'].forEach(k => { const tz = st.tz[k]; if (!tz) return;
+      h += `<h3>📋 ТЗ ${k === 'q' ? 'квалификации' : 'парных заездов'}</h3><div class="card"><div class="text">${esc(tz.text)}</div>
+        ${tz.video ? link('🎥 Получить видео ТЗ в Телеграме', `tz_${st.id}_${k}`, 'btn ghost') : ''}</div>`; });
+  } else if (stageTab === 'bracket') {
+    if (!st.matches.length) h += `<div class="empty">Сетка появится, когда закончится ${st.qual ? 'квалификация' : 'регистрация'}.</div>`;
+    else {
+      h += `<div class="chips"><span class="chip ${bView === 'full' ? 'on' : ''}" onclick="setView('full')">Вся сетка</span>
+        <span class="chip ${bView === 'rounds' ? 'on' : ''}" onclick="setView('rounds')">По раундам</span></div>
+        <div class="legend"><span><i style="background:var(--accent)"></i>победитель</span><span><i style="background:var(--live)"></i>едут сейчас</span>
+        <span><i style="background:var(--judge)"></i>у судей</span></div>`;
+      h += bView === 'full' ? `<div class="bwrap">${bracketSVG(st)}</div><p class="note">Нажми на пару — видео, голоса судей, OMT.</p>` : roundsList(st);
+    }
+  } else if (stageTab === 'qual') {
+    h += st.qruns.length ? `<div class="card"><table><tr><th>#</th><th>Пилот</th><th style="text-align:right">Очки</th><th></th></tr>
+      ${st.qruns.map((r, i) => `<tr><td>${r[2] === 'ok' ? i + 1 : ''}</td><td>${esc(r[0])}</td><td class="n">${r[1]}</td>
+        <td>${r[2] === 'ok' ? '✅' : r[2] === 'wait' ? '⏳' : '❌'}</td></tr>`).join('')}</table></div>
+      <p class="note">✅ засчитано · ⏳ у судей · ❌ не по ТЗ. В сетку проходят топ-${st.size}.</p>` : '<div class="empty">Квалификацию ещё никто не сдал.</div>';
+  } else if (stageTab === 'reg') {
+    h += st.reg.length ? `<div class="card">${st.reg.map((p, i) => `<div class="row"><span class="pl">${i + 1}</span><div class="nm">${esc(p.nick)}<small>${esc(p.club || 'соло')}</small></div></div>`).join('')}</div>`
+      : '<div class="empty">Пока никто не записался.</div>';
+  } else if (stageTab === 'res') {
+    h += `<div class="card">${st.places.map(([p, place, pts], i) => `<div class="row"><span class="pl ${place <= 3 ? 'p' + place : ''}">${place}</span>
+      <div class="nm">${esc(p.nick)}<small>${esc(p.club || 'соло')}</small></div><span class="pt">+${pts}</span></div>`).join('')}</div>`;
+  }
+  el.innerHTML = h;
+}
+
+// ---------- Сетка как на Challonge: колонки по раундам, линии между парами ----------
+const W = 176, H = 53, GX = 46, GY = 16, HEAD = 26;
+const sec = id => id === 'GF' || id === 'B3' ? id : id[0];
+const rnd = id => parseInt(id.slice(1).split('-')[0], 10);
+const idx = id => parseInt(id.split('-')[1], 10);
+function layout(st) {
+  const ms = st.matches, pos = {}, feeders = {};
+  ms.forEach(m => { feeders[m.id] = []; });
+  // кто кого питает — восстанавливаем по порядку сетки (верх: 2 пары → 1; низ: по номерам)
+  const by = {}; ms.forEach(m => { const s = sec(m.id); if (s === 'U' || s === 'L') (by[s + rnd(m.id)] = by[s + rnd(m.id)] || []).push(m); });
+  Object.values(by).forEach(a => a.sort((x, y) => idx(x.id) - idx(y.id)));
+  const place = (s, maxR, top) => {
+    let y0 = top;
+    for (let r = 1; r <= maxR; r++) {
+      const col = by[s + r] || [], prev = by[s + (r - 1)] || [];
+      col.forEach((m, i) => {
+        let y;
+        if (r === 1) y = y0 + i * (H + GY);
+        else if (prev.length === col.length * 2) { y = (pos[prev[2 * i].id].y + pos[prev[2 * i + 1].id].y) / 2; feeders[m.id] = [prev[2 * i].id, prev[2 * i + 1].id]; }
+        else if (prev.length === col.length) { y = pos[prev[i].id].y; feeders[m.id] = [prev[i].id]; }
+        else y = y0 + i * (H + GY);
+        pos[m.id] = { x: (r - 1) * (W + GX), y };
+      });
+    }
+  };
+  const maxU = Math.max(0, ...ms.filter(m => sec(m.id) === 'U').map(m => rnd(m.id)));
+  const maxL = Math.max(0, ...ms.filter(m => sec(m.id) === 'L').map(m => rnd(m.id)));
+  place('U', maxU, HEAD);
+  const upH = Math.max(...Object.values(pos).map(p => p.y)) + H;
+  let lowTop = upH + 50;
+  if (maxL) place('L', maxL, lowTop + HEAD);
+  const uf = ms.find(m => sec(m.id) === 'U' && rnd(m.id) === maxU);
+  if (st.final === 'GF') {
+    const lf = ms.find(m => sec(m.id) === 'L' && rnd(m.id) === maxL);
+    pos.GF = { x: Math.max(maxU, maxL) * (W + GX), y: (pos[uf.id].y + pos[lf.id].y) / 2 };
+    feeders.GF = [uf.id, lf.id];
+  }
+  if (ms.find(m => m.id === 'B3')) pos.B3 = { x: pos[uf.id].x, y: pos[uf.id].y + H + 70 };
+  const w = Math.max(...Object.values(pos).map(p => p.x)) + W + 20, hh = Math.max(...Object.values(pos).map(p => p.y)) + H + 20;
+  return { pos, feeders, w, h: hh, maxU, maxL, lowTop };
+}
+function mcard(st, m, p, style) {
+  const row = (side, pl, sd) => {
+    const win = m.w === side, lose = m.w && m.w !== side && m.done;
+    const icon = win && m.manual ? '⚖️' : win ? '✓' : '';
+    return `<div class="r ${win ? 'w' : ''} ${lose && pl ? 'l' : ''}"><span class="sd">${sd || ''}</span><span class="nk">${pl ? esc(pl.nick) : (m.done || m.bye ? 'BYE' : '—')}</span><span class="ic">${icon}</span></div>`;
+  };
+  const cls = m.bye ? 'bye' : m.judging ? 'judging' : m.live ? 'live' : '';
+  const tag = m.judging ? 'у судей' : m.live ? 'едут' : m.omt ? `OMT×${m.omt}` : '';
+  return `<div class="mc ${cls}" style="${style || ''}" onclick="openMatch('${st.id}','${m.id}')">${tag ? `<span class="tag">${tag}</span>` : ''}
+    ${row('a', m.a, m.sa)}${row('b', m.b, m.sb)}</div>`;
+}
+function bracketSVG(st) {
+  const L = layout(st);
+  let lines = '', cards = '', heads = '';
+  const mid = id => ({ x: L.pos[id].x, y: L.pos[id].y + H / 2 });
+  Object.entries(L.feeders).forEach(([id, fs]) => fs.forEach(f => {
+    if (!L.pos[id] || !L.pos[f]) return;
+    const a = mid(f), b = mid(id), x1 = a.x + W, xm = x1 + GX / 2;
+    const done = (st.matches.find(m => m.id === f) || {}).done;
+    lines += `<path d="M${x1} ${a.y}H${xm}V${b.y}H${b.x}" fill="none" stroke="${done ? '#5a5a66' : '#34343e'}" stroke-width="1.5"/>`;
+  }));
+  const seen = {};
+  st.matches.forEach(m => {
+    const p = L.pos[m.id]; if (!p) return;
+    cards += mcard(st, m, p, `left:${p.x}px;top:${p.y}px`);
+    const s = sec(m.id), key = s === 'GF' || s === 'B3' ? m.id : s + rnd(m.id);
+    if (!seen[key]) {
+      seen[key] = 1;
+      const label = m.id === 'B3' ? 'За 3-е место' : m.id === 'GF' ? 'Финал' : m.name.replace(' · верхняя сетка', '').replace('Нижняя сетка · ', '').replace(' (за 3-е место)', '');
+      const y = m.id === 'B3' || m.id === 'GF' ? p.y - 20 : s === 'L' ? L.lowTop + 4 : 4;
+      heads += `<div class="bhead" style="left:${p.x}px;top:${y}px">${esc(label)}</div>`;
+    }
+  });
+  const lowLabel = L.maxL ? `<div class="bsec" style="left:0;top:${L.lowTop - 22}px">Нижняя сетка</div>` : '';
+  return `<div class="bcanvas" style="width:${L.w}px;height:${L.h}px"><svg width="${L.w}" height="${L.h}">${lines}</svg>${heads}${lowLabel}${cards}</div>`;
+}
+function roundsList(st) {
+  const groups = [];
+  st.matches.forEach(m => { const s = sec(m.id); const key = s === 'GF' || s === 'B3' ? 'Z' + m.id : s + String(rnd(m.id)).padStart(2, '0');
+    let g = groups.find(x => x.key === key); if (!g) groups.push(g = { key, name: m.name, list: [] }); g.list.push(m); });
+  groups.sort((a, b) => a.key.localeCompare(b.key));
+  return groups.map(g => `<h3>${esc(g.name.replace(' · верхняя сетка', ''))}</h3><div class="rlist">${g.list.map(m => mcard(st, m, null, '')).join('')}</div>`).join('');
+}
+
+// ---------- Детали пары ----------
+function openMatch(sid, mid) {
+  const st = D.stages.find(s => s.id === sid), m = st.matches.find(x => x.id === mid);
+  const nm = p => p ? esc(p.nick) : '—';
+  const res = { a: m.a && m.a.nick, b: m.b && m.b.nick, omt: 'OMT', reset: 'сброшено' };
+  let h = `<div style="color:var(--muted);font-size:13px">${esc(st.title)} · ${esc(m.name)}</div>
+    <div class="vs"><div class="${m.w === 'a' ? 'w' : ''}"><b>${nm(m.a)}</b><span class="note">${esc((m.a && m.a.club) || 'соло')}${m.sa ? ' · посев ' + m.sa : ''}</span></div>
+    <span class="note">vs</span><div class="${m.w === 'b' ? 'w' : ''}"><b>${nm(m.b)}</b><span class="note">${esc((m.b && m.b.club) || 'соло')}${m.sb ? ' · посев ' + m.sb : ''}</span></div></div>`;
+  h += `<div class="note">${m.bye ? 'Автопроход — соперника не было.' : m.done ? (m.manual ? 'Результат поставил организатор.' : 'Пара решена судьями.') : m.judging ? 'Заезд у судей, ждём решения.' : m.live ? 'Пилоты катают — ждём видео.' : 'Пара ещё не определилась.'}${m.omt ? ` OMT: ${m.omt}.` : ''}</div>`;
+  m.tries.forEach((t, i) => {
+    h += `<h3>Попытка ${i + 1}: ${esc(res[t.res] || t.res)}</h3><div class="card" style="padding:10px 14px">${t.votes.map(([j, v]) => `<div class="vote"><span>👨‍⚖️ ${esc(j)}</span><b>${esc(res[v] || v)}</b></div>`).join('') || '<span class="note">голосов нет</span>'}</div>`;
+  });
+  if (m.tries.length) h += link('🎥 Смотреть видео заездов в Телеграме', `w_${st.id}_${m.id}`, 'btn ghost');
+  if (ME.org && st.state !== 'draft') {
+    h += `<h3>Организатор</h3>`;
+    if (m.live && !m.done) h += `<button class="btn small" onclick="act('win','${sid}','${mid}','a')">Победил ${nm(m.a)}</button><button class="btn small" onclick="act('win','${sid}','${mid}','b')">Победил ${nm(m.b)}</button>`;
+    if (m.done && !m.bye) h += `<button class="btn small" style="background:var(--card2)" onclick="act('reset','${sid}','${mid}')">Сбросить результат</button>`;
+    const started = st.matches.some(x => x.tries.length || (x.done && !x.bye));
+    if (!started && mid.startsWith('U1-') && st.state === 'run') {
+      const seeds = st.matches.filter(x => x.id.startsWith('U1-')).flatMap(x => [x.a, x.b]).filter(Boolean);
+      h += `<div class="note" style="margin-top:10px">Поменять местами (только до первого заезда):</div>
+        <select id="swapA">${[m.a, m.b].filter(Boolean).map(p => `<option value="${p.id}">${esc(p.nick)}</option>`).join('')}</select>
+        <select id="swapB">${seeds.map(p => `<option value="${p.id}">${esc(p.nick)}</option>`).join('')}</select>
+        <button class="btn small" onclick="swap('${sid}')">Поменять</button>`;
+    }
+  }
+  h += `<button class="btn ghost" onclick="closeSheet()">Закрыть</button>`;
+  document.getElementById('sheetBody').innerHTML = h;
+  document.getElementById('sheet').classList.add('open');
+}
+function closeSheet() { document.getElementById('sheet').classList.remove('open'); }
+async function act(a, sid, mid, side) {
+  if (a === 'reset' && !confirm('Сбросить результат этой пары?')) return;
+  const r = await api({ act: a, sid, mid, side });
+  if (!r.ok) alert('Не получилось: ' + r.error);
+  closeSheet(); await load();
+}
+async function swap(sid) {
+  const a = document.getElementById('swapA').value, b = document.getElementById('swapB').value;
+  if (a === b) return;
+  const r = await api({ act: 'swap', sid, a, b });
+  if (!r.ok) alert('Не получилось: ' + r.error);
+  closeSheet(); await load();
+}
+
+// ---------- Таблицы ----------
+function renderPilots() {
+  const done = D.stages.filter(s => s.state === 'done');
+  document.getElementById('pilots').innerHTML = `<h2>Личный зачёт</h2>` + (D.pilots.length ? `<div class="card" style="overflow-x:auto"><table>
+    <tr><th>#</th><th>Пилот</th>${done.map(s => `<th style="text-align:right">Э${s.n}</th>`).join('')}<th style="text-align:right">Очки</th></tr>
+    ${D.pilots.map((p, i) => `<tr><td>${i + 1}</td><td>${esc(p.nick)}<div class="note">${esc(p.club || 'соло')}</div></td>
+      ${done.map(s => `<td class="n" style="color:var(--muted)">${p.stages[s.id] ?? '·'}</td>`).join('')}<td class="n">${p.pts}</td></tr>`).join('')}</table></div>
+    <p class="note">Очки за итоговое место на этапе: ${D.points.map(([mx, pt], i) => (i && D.points[i - 1][0] + 1 < mx ? (D.points[i - 1][0] + 1) + '–' : '') + mx + ' — ' + pt).join(' · ')}.</p>`
+    : '<div class="empty">Пилотов пока нет.</div>');
+}
+function renderClubs() {
+  document.getElementById('clubs').innerHTML = `<h2>Клубный зачёт</h2>` + (D.clubs.length ? D.clubs.map((c, i) => `<div class="card">
+    <div style="display:flex;align-items:center;gap:10px"><span class="pl" style="font-family:var(--race);color:${i === 0 ? 'var(--gold)' : 'var(--muted)'}">${i + 1}</span>
+      <b style="flex:1">${esc(c.name)}</b><span style="font-family:var(--race);font-size:18px">${c.pts}</span></div>
+    <div class="note" style="margin-top:6px">Капитан: ${esc(c.leader)} · состав ${c.members.length}/${D.club_max}</div>
+    <div style="margin-top:6px">${c.members.map(p => esc(p.nick)).join(' · ') || '<span class="note">состав пуст</span>'}</div></div>`).join('')
+    + `<p class="note">В клубный зачёт идут очки всех пилотов клуба. Ушёл пилот — его очки уходят вместе с ним.</p>`
+    : '<div class="empty">Клубов пока нет. Капитан создаёт клуб в боте.</div>') + link('👥 Клуб в боте', 'club', 'btn ghost');
+}
+function renderRules() {
+  const r = D.content.rules || {};
+  document.getElementById('rules').innerHTML = `<h2>Регламент</h2><div class="card">${r.text ? `<div class="text">${esc(r.text)}</div>` : '<span class="note">Регламент скоро появится.</span>'}
+    <div class="photos">${(r.photos || []).map(k => `<img loading="lazy" alt="" src="${BOT_URL}/img/${encodeURIComponent(k)}">`).join('')}</div></div>
+    <h3>Как устроен чемпионат</h3><div class="card text">• Пилот регистрируется в боте соло или в составе клуба (до ${D.club_max} пилотов).
+• Квалификация (если есть) — видео соло-заезда по ТЗ, судьи проверяют счёт.
+• Парные заезды — два видео: ведёт один, потом другой. Сдаёт любой из пары.
+• Судьи (1 или 3) решают: победа или OMT — перезаезд. При трёх судьях решают двое из трёх. Голоса публичные.
+• Сетка топ-16/32/64, по выбору с лузер-сеткой, заезд за 3-е место есть всегда.</div>`;
+}
+
+show('home');
+load();
+loadMe();
+setInterval(() => { if (document.visibilityState === 'visible' && D && D.stages.some(s => s.state === 'run')) load(); }, 30000);
+</script>
+</body>
+</html>
