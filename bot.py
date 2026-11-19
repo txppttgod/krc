@@ -197,6 +197,17 @@ def mention(uid):
     return f"{nick(uid)} (@{un})" if un else nick(uid)
 
 
+def contact(uid):
+    # как связаться с пилотом в Телеграме
+    un = S["users"].get(str(uid), {}).get("un")
+    return f"@{un}" if un else "без @username (попроси его задать юзернейм в настройках Телеграма и открыть бота)"
+
+
+def dm_button(uid):
+    un = S["users"].get(str(uid), {}).get("un")
+    return {"text": f"✉️ Написать {nick(uid)}", "url": f"https://t.me/{un}"} if un else None
+
+
 def club_of(uid):
     p = pilot(uid)
     return S["clubs"].get(p["club"]) if p and p.get("club") else None
@@ -418,6 +429,99 @@ def active_for(uid):
     return None, None
 
 
+def pair_status(st, m):
+    # короткий статус пары: что сейчас мешает ей решиться
+    t = try_open(m)
+    if t:
+        js = eligible(st, m)
+        need = 1 if st["jn"] == 1 else min(2, max(1, len(js)))
+        miss = [nick(j) for j in js if str(j) not in t["votes"]]
+        return "judge", f"⚖️ у судей · голосов {len(t['votes'])}/{need}" + (f" · ждём: {', '.join(miss)}" if miss else "")
+    if m.get("protest") and not m["protest"].get("res"):
+        return "protest", "📣 протест на рассмотрении"
+    ups = [u for u in (m["pa"], m["pb"]) if (user(u).get("up") or {}).get("mid") == m["id"]
+           and (user(u).get("up") or {}).get("sid") == st["id"] and user(u)["up"].get("v")]
+    left = ""
+    if st.get("dl") and m["open"]:
+        sec = m["open"] + (st["dl"] + m.get("ext", 0)) * 60 - time.time()
+        left = f" · осталось {max(0, int(sec // 60))} мин" if sec > 0 else " · ⏰ время вышло"
+    if ups:
+        return "upload", f"🎥 загружают видео ({len(user(ups[0])['up']['v'])}/2){left}"
+    return "wait", f"🎥 ждём 2 видео{left}"
+
+
+def my_pair(uid):
+    # экран «Моя пара» для пилота
+    st, m = active_for(uid)
+    if not st:
+        st_reg = next((x for x in stage_list(["reg"]) if uid in x["reg"]), None)
+        if st_reg:
+            return send(uid, f"✅ Ты записан на {st_reg['title']}. Сетки пока нет — бот напишет, когда твоя пара откроется.",
+                        kb([[b("⬅️ Меню", "m:home")]]))
+        return send(uid, "Сейчас у тебя нет открытой пары.", kb([[b("🏁 Этапы", "m:stages")], [b("⬅️ Меню", "m:home")]]))
+    if not m:
+        run = st["qruns"].get(str(uid))
+        txt = (f"⏱ {st['title']} · квалификация\n\n" +
+               ({"wait": f"Сдано: {run['score']:g} очков — у судей.", "ok": f"✅ Засчитано: {run['score']:g} очков.",
+                 "no": "❌ Не засчитано — можно сдать заново."}[run["st"]] if run else
+                "Ты ещё не сдал квалификацию: пришли боту видео соло-заезда по ТЗ, потом напиши счёт."))
+        return send(uid, txt, kb([[b("📋 ТЗ квалификации", f"tz:{st['id']}:q")], [b("⬅️ Меню", "m:home")]]))
+    opp = m["pb"] if m["pa"] == uid else m["pa"]
+    _, status = pair_status(st, m)
+    txt = (f"⚔️ {st['title']} · {m['name']}\nТвоя пара: {nick(uid)} vs {nick(opp)}"
+           + (f" · OMT {m['omt']}" if m["omt"] else "") + f"\nСвязь с соперником: {contact(opp)}\n\nСтатус: {status}\n\n"
+           + ("Решение за судьями — бот напишет результат." if try_open(m) else
+              "Как сдать: пришли боту 2 видео — в одном ведёт один пилот, в другом второй. "
+              "Бот спросит, кто ведёт, и отправит пару судьям. Сдать может любой из вас."))
+    return send(uid, txt, kb([[dm_button(opp)], [b("📋 ТЗ парных заездов", f"tz:{st['id']}:b")], [b("⬅️ Меню", "m:home")]]))
+
+
+def readiness(st):
+    # чек-лист перед стартом этапа
+    js = len(st["judges"])
+    rows = [("✅" if js >= st["jn"] else "❌") + f" Судьи: {js} из {st['jn']}",
+            ("✅" if st["tz"].get("b") else "❌") + " ТЗ парных заездов"]
+    if st["qual"]:
+        rows.append(("✅" if st["tz"].get("q") else "❌") + " ТЗ квалификации")
+    n = len(st["reg"])
+    rows.append(("✅" if n >= 2 else "❌") + f" Записано пилотов: {n}" + (f" (в сетку войдут {st['size']})" if n > st["size"] and not st["qual"] else ""))
+    if st.get("pend"):
+        rows.append(f"⚠️ Заявок ждут решения: {len(st['pend'])}")
+    return "Готовность:\n" + "\n".join(rows)
+
+
+def live_panel(uid, st):
+    # организатору: где сейчас застрял этап
+    open_m = [m for m in st["matches"] if m["open"] and not m["done"]]
+    done = sum(1 for m in st["matches"] if m["done"] and not m["bye"])
+    total = sum(1 for m in st["matches"] if not m["bye"])
+    lines, rows = [], []
+    for m in open_m[:20]:
+        kind, status = pair_status(st, m)
+        lines.append(f"• {m['name']}: {nick(m['pa'])} vs {nick(m['pb'])}\n  {status}")
+        rows.append([b(f"🔔 {m['name']}", f"nd:{st['id']}:{m['id']}"),
+                     b("🛠 Итог вручную", f"sa:{st['id']}:man")])
+    head = f"📡 {st['title']} · сейчас\nРешено пар: {done} из {total}\n\n"
+    txt = head + ("\n".join(lines) if lines else "Открытых пар нет.") + \
+        ("\n\n🔔 — напомнить: пилотам, если ждём видео; судьям, если пара у них (пришлю им её ещё раз)." if lines else "")
+    send(uid, txt[:4000], kb(rows[:20] + [[b("🔄 Обновить", f"sa:{st['id']}:live"), b("⬅️ К этапу", f"sm:{st['id']}")]]))
+
+
+def nudge(uid, st, m):
+    kind, _ = pair_status(st, m)
+    if kind == "judge":
+        t = try_open(m)
+        miss = [j for j in eligible(st, m) if str(j) not in t["votes"]]
+        for j in miss:
+            send(j, f"🔔 Организатор просит решить пару {m['name']} ({st['title']}).")
+            send_pair(st, m, t, j)
+        return f"Напомнил судьям: {len(miss)}"
+    for x in (m["pa"], m["pb"]):
+        send(x, f"🔔 Организатор напоминает: {st['title']} · {m['name']} — ждём ваши 2 видео.",
+             kb([[b("⚔️ Моя пара", "m:pair")]]))
+    return "Напомнил обоим пилотам"
+
+
 def send_tz(uid, st, kind):
     tz = st["tz"].get(kind)
     what = "квалификации" if kind == "q" else "парных заездов"
@@ -435,11 +539,11 @@ def send_tz(uid, st, kind):
 
 def notify_open(st, m):
     for me, opp in ((m["pa"], m["pb"]), (m["pb"], m["pa"])):
-        send(me, f"⚔️ {st['title']} · {m['name']}\nТвоя пара: {nick(me)} vs {nick(opp)}\n\n"
+        send(me, f"⚔️ {st['title']} · {m['name']}\nТвоя пара: {nick(me)} vs {nick(opp)}\nСвязь с соперником: {contact(opp)}\n\n"
                  "Катайте по ТЗ и пришлите боту 2 видео: одно, где ведёт один пилот, и второе, где ведёт другой. "
                  "Сдать может любой из вас — второй раз сдавать не нужно."
                  + (f"\n\n⏳ На заезд {st['dl']} мин." if st.get("dl") else ""),
-             kb([[b("📋 ТЗ парных заездов", f"tz:{st['id']}:b")]]))
+             kb([[b("📋 ТЗ парных заездов", f"tz:{st['id']}:b"), b("⚔️ Моя пара", "m:pair")], [dm_button(opp)]]))
 
 
 # ---------- Квалификация по видео ----------
@@ -1154,6 +1258,9 @@ def home(uid, chat=None, mid=None):
     text = (f"🏁 {TITLE}\n\n" + (f"Пилот: {p['nick']} · {('клуб ' + c['name']) if c else 'соло'}" if p else "Ты ещё не пилот.")
             + ("\n\nСейчас: " + "; ".join(f"{s['title']} — {STATE_RU[s['state']]}" for s in open_st) if open_st else ""))
     rows = [[x] for x in (reg_button(uid, s_) for s_ in open_st if s_["state"] == "reg") if x][:2] if p else []
+    a_st, a_m = active_for(uid) if p else (None, None)
+    if a_st:
+        rows.insert(0, [b(f"⚔️ Моя пара: vs {nick(a_m['pb'] if a_m['pa'] == uid else a_m['pa'])}" if a_m else "⏱ Моя квалификация", "m:pair")])
     rows += [[b("✏️ Мой ник" if p else "🏎 Стать пилотом", "m:pilot"), b("🏁 Этапы", "m:stages")],
             [b("🪪 Анкета: номер, машина, фото", "m:card")] if p else None,
             [b("👥 Клуб", "m:club"), b("❓ Как это работает", "m:help")], app_row(),
@@ -1309,6 +1416,7 @@ def stage_menu(uid, st):
         rows.append([b("👨‍⚖️ Судьи", f"sj:{sid}"), b(f"⏱ Сдали {len(st['qruns'])}, засчитано {ok}", f"sm:{sid}")])
         rows.append([b("🏗 Закрыть квалификацию и построить сетку", f"sa:{sid}:qbuild")])
     if s == "run":
+        rows.insert(0, [b("📡 Пары сейчас", f"sa:{sid}:live")])
         rows.append([b("👨‍⚖️ Судьи", f"sj:{sid}"), b("🛠 Результат вручную", f"sa:{sid}:man")])
     if st.get("pend"):
         rows.append([b(f"📝 Заявки ({len(st['pend'])})", f"sa:{sid}:pend")])
@@ -1318,7 +1426,14 @@ def stage_menu(uid, st):
     if s in ("run", "done"):
         rows.append([b("⬇️ Итоги таблицей", f"sa:{sid}:csv")])
     rows.append([b("⬅️ Назад", "m:org")])
-    send(uid, stage_desc(st) + "\n\nВ приложении сетку можно править: поставить или сбросить результат, поменять пилотов.",
+    extra = ("\n\n" + readiness(st)) if s in ("draft", "reg") else ""
+    if s == "reg" and st.get("closed"):
+        extra += "\n\n🔒 Регистрация закрыта — можно строить сетку" + (" (сначала квалификация)." if st["qual"] else ".")
+    if s == "run":
+        busy = [pair_status(st, m)[0] for m in st["matches"] if m["open"] and not m["done"]]
+        extra += f"\n\nСейчас: у судей {busy.count('judge')}, ждём видео {busy.count('wait') + busy.count('upload')}" + \
+                 (f", протестов {busy.count('protest')}" if busy.count("protest") else "") + ". Подробно — «📡 Пары сейчас»."
+    send(uid, stage_desc(st) + extra + "\n\nВ приложении сетку можно править: поставить или сбросить результат, поменять пилотов.",
          kb(rows))
 
 
@@ -1670,6 +1785,12 @@ def deep_start(uid, arg):
         return
     if parts[0] == "club":
         return club_menu(uid)
+    if parts[0] == "pair":
+        return my_pair(uid)
+    if parts[0] == "judge":
+        return judge_resend(uid)
+    if parts[0] == "org" and is_org(uid):
+        return org_menu(uid)
     home(uid)
 
 
@@ -1692,6 +1813,8 @@ def handle_cb(cq):
             user(uid)["aw"] = p[1]
             return send(uid, {"num": "Напиши свой гоночный номер (1–999):", "car": "Какая у тебя машина? (до 40 символов)",
                               "pphoto": "Пришли фото своей машины (лучше в ливрее) одним фото."}[p[1]])
+        if p[1] == "pair":
+            return my_pair(uid)
         return {"stages": stages_menu, "club": club_menu, "help": lambda x: send(x, HELP),
                 "org": lambda x: org_menu(x) if is_org(x) else None}.get(p[1], home)(uid)
     if k in ("rg", "ul"):
@@ -1956,6 +2079,12 @@ def org_cb(cq, uid, p):
     if k == "js":
         answer(cq)
         return send(uid, judge_stats_text(), kb([[b("⬅️ Назад", "m:org")]]))
+    if k == "nd":
+        st = S["stages"].get(p[1])
+        m = mget(st, p[2]) if st else None
+        if not m or m["done"] or not m["open"]:
+            return answer(cq, "Пара уже решена.", True)
+        return answer(cq, nudge(uid, st, m), True)
     if k == "mx":
         st = S["stages"].get(p[1])
         m = mget(st, p[2]) if st else None
@@ -2058,7 +2187,15 @@ def stage_action(cq, uid, st, act, extra):
         for x in st["reg"]:
             send(x, f"🔒 Регистрация на {st['title']} закрыта. Ты в списке — жди сетку.")
         answer(cq, "Регистрация закрыта")
-        return stage_menu(uid, st)
+        nxt = [b("⏱ Начать квалификацию", f"sa:{st['id']}:qual")] if st["qual"] else \
+            [b("🎲 Сетка жребием", f"sa:{st['id']}:br"), b("🏗 По очкам сезона", f"sa:{st['id']}:bp")]
+        return send(uid, f"🔒 Регистрация на {st['title']} закрыта.\n\n{readiness(st)}\n\nЧто дальше?" +
+                    ("\n⚠️ Сначала назначь судей — иначе заезды некому будет решать." if not st["judges"] else ""),
+                    kb([nxt, [b("👨‍⚖️ Судьи", f"sj:{st['id']}"), b("🔓 Открыть снова", f"sa:{st['id']}:reopen")],
+                        [b("⬅️ К этапу", f"sm:{st['id']}")]]))
+    if act == "live" and s == "run":
+        answer(cq)
+        return live_panel(uid, st)
     if act == "reopen" and s == "reg":
         st["closed"] = False
         log(uid, f"{st['title']}: регистрация открыта снова")
@@ -2164,7 +2301,14 @@ def app_api(req):
         mine = {sid: st["fans"][str(uid)] for sid, st in S["stages"].items() if str(uid) in st.get("fans", {})}
         regs = {sid: "in" if uid in st["reg"] else "pend" for sid, st in S["stages"].items()
                 if uid in st["reg"] or uid in st.get("pend", [])}
-        return {"ok": True, "org": is_org(uid), "pid": p["pid"] if p else None, "fans": mine, "reg": regs}
+        a_st, a_m = active_for(uid)
+        judge = any(uid in st["judges"] for st in stage_list(["reg", "qual", "run"]))
+        return {"ok": True, "org": is_org(uid), "pid": p["pid"] if p else None, "fans": mine, "reg": regs,
+                "judge": judge, "jq": len(judge_queue(uid)) if judge else 0,
+                "pair": {"sid": a_st["id"], "mid": a_m["id"] if a_m else None,
+                         "status": pair_status(a_st, a_m)[1] if a_m else None,
+                         "opp_un": S["users"].get(str(a_m["pb"] if a_m["pa"] == uid else a_m["pa"]), {}).get("un") if a_m else None}
+                if a_st else None}
     if req.get("act") == "fan":
         return fan_vote(uid, req.get("sid"), req.get("mid"))
     if not is_org(uid):

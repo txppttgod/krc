@@ -669,6 +669,48 @@ c = dm(160, "/judge"); check("non-judge /judge refused", "не судья" in te
 bot.load_state(); t11 = bot.mget(bot.S["stages"][st11], m11["id"])["tries"][-1]; ti = len(bot.mget(bot.S["stages"][st11], m11["id"])["tries"]) - 1
 c = tap(12, f"jv:{st11}:{m11['id']}:{ti}:a")
 c = dm(12, "/judge"); check("after decision nothing pending", "нет заездов" in texts(c) or "не судья ни одного" in texts(c))
+# ---------- готовность этапа, «Моя пара», живая панель ----------
+bot.load_state()
+for x in bot.S["stages"].values():
+    if x["state"] in ("qual", "run", "reg"):
+        x["state"] = "done" if x["state"] != "reg" else "draft"
+bot.save_state()
+tap(2, "st:new"); tap(2, "sd:jn"); tap(2, "sd:qual"); tap(2, "sd:ok"); st12 = max(S()["stages"], key=int)
+tap(2, f"sa:{st12}:open")
+c = tap(2, f"sm:{st12}"); check("readiness checklist", "Готовность" in texts(c) and "❌ Судьи: 0 из 1" in texts(c))
+for u in (160, 161, 103, 104):
+    tap(u, f"rg:{st12}")
+c = dm(160, "/menu"); check("no pair before bracket", "m:pair" not in btns(c))
+c = tap(160, "m:pair"); check("my pair: registered, waiting", "Ты записан" in texts(c))
+c = tap(2, f"sa:{st12}:close")
+check("close offers bracket and warns about judges", f"sa:{st12}:br" in btns(c) and "назначь судей" in texts(c))
+tap(2, f"sj:{st12}:add"); dm(2, "@user11")
+tap(2, f"sa:{st12}:br")
+bot.load_state(); m12 = next(m for m in bot.S["stages"][st12]["matches"] if m["open"] and not m["done"])
+A, B = m12["pa"], m12["pb"]
+c = dm(A, "/menu"); check("pilot sees my pair in menu", "m:pair" in btns(c) and f"vs {bot.nick(B)}" in str(c))
+c = tap(A, "m:pair"); check("my pair screen", "Твоя пара" in texts(c) and "ждём 2 видео" in texts(c))
+c = dm(A, "/start pair"); check("deep link to my pair", "Твоя пара" in texts(c))
+c = tap(A, "m:pair")
+urls = [x.get("url") for m_, p_ in c for row in ((p_ or {}).get("reply_markup") or {}).get("inline_keyboard", []) for x in row]
+check("my pair shows opponent username", f"@user{B}" in texts(c) and f"https://t.me/user{B}" in urls)
+r = api({"init": init_for(A), "act": "me"}); check("app gets opponent username", r["pair"]["opp_un"] == f"user{B}")
+check("opponent username not in public data", f"user{B}" not in json.dumps(bot.public_data(), ensure_ascii=False))
+bot.load_state(); bot.S["users"][str(B)]["un"] = ""; bot.save_state()
+c = tap(A, "m:pair"); check("no username -> explained, no button", "без @username" in texts(c)
+                             and not any("t.me/" in str(x) for m_, p_ in c for x in [(p_ or {}).get("reply_markup")]))
+bot.load_state(); bot.S["users"][str(B)]["un"] = f"user{B}"; bot.save_state()
+r = api({"init": init_for(A), "act": "me"}); check("app knows my pair", r["pair"]["mid"] == m12["id"] and "видео" in r["pair"]["status"])
+c = tap(2, f"sm:{st12}"); check("stage menu shows live summary", f"sa:{st12}:live" in btns(c) and "ждём видео" in texts(c))
+c = tap(2, f"sa:{st12}:live"); check("live panel lists pairs", m12["name"] in texts(c) and f"nd:{st12}:{m12['id']}" in btns(c))
+c = tap(2, f"nd:{st12}:{m12['id']}"); check("nudge pilots", len([p for m, p in c if "напоминает" in p.get("text", "")]) == 2)
+dm(A, video={"file_id": "k1", "file_unique_id": "K1"}); tap(A, "up:lead:a")
+c = tap(2, f"sa:{st12}:live"); check("live panel sees upload in progress", "загружают видео (1/2)" in texts(c))
+dm(A, video={"file_id": "k2", "file_unique_id": "K2"}); tap(A, "up:send")
+c = tap(A, "m:pair"); check("my pair: at judges", "у судей" in texts(c))
+c = tap(2, f"nd:{st12}:{m12['id']}"); check("nudge judges resends pair", any(m == "sendMediaGroup" and p["chat_id"] == 11 for m, p in c))
+r = api({"init": init_for(11), "act": "me"}); check("app knows judge queue", r["judge"] and r["jq"] >= 1)
+c = tap(5, f"nd:{st12}:{m12['id']}"); check("non-organizer cannot nudge", not any("Организатор просит" in p.get("text", "") for m, p in c))
 check("every keyboard is valid for Telegram", not BAD_KB, BAD_KB[:5])
 print("\n".join(checks))
 failed = sum(x.startswith("FAIL") for x in checks)
