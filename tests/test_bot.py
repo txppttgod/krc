@@ -580,6 +580,28 @@ d = bot.public_data(); check("ban visible in app data", next(p_ for p_ in d["pil
 c = tap(2, "bn:rm:108"); check("pilot returned", "108" not in S()["banned"])
 d = bot.public_data(); p103 = next(p_ for p_ in d["pilots"] if p_["nick"] == "Pilot103")
 check("pilot card in app data", p103["num"] == 77 and p103["car"] == "Nissan Silvia S15" and p103["photo"])
+# ---------- фото «Регламент авто»: менять может только один человек ----------
+check("car photo admin by default", bot.CAR_ADMIN == 5607731610)
+bot.CAR_ADMIN = 1
+c = tap(2, "rc"); check("organizer cannot open car photo", "только владелец" in str(c))
+c = dm(2, "/carphoto"); check("organizer has no /carphoto", not any("Регламент авто" in p.get("text", "") for m, p in c))
+c = tap(2, "ct:car:photo"); bot.load_state(); check("car page not editable via content editor", bot.S["users"]["2"].get("aw") != "ct_photo:car")
+c = dm(1, "/admin"); check("owner sees car photo button", "rc" in btns(c))
+c = dm(2, "/admin"); check("organizer does not see car photo button", "rc" not in btns(c))
+d = bot.public_data(); check("no car photo by default", d["content"]["car"]["photos"] == [])
+tap(1, "rc:new"); c = dm(1, "привет"); check("car photo waits for picture", "Жду фото" in texts(c))
+c = dm(1, photo=[{"file_id": "s"}, {"file_id": "car_reg_1"}])
+d = bot.public_data(); k1 = d["content"]["car"]["photos"][0]
+check("car photo replaced", "обновлено" in texts(c) and len(d["content"]["car"]["photos"]) == 1 and bot.image_bytes(k1) == b"jpgbytes")
+tap(1, "rc:new"); dm(1, document={"file_id": "car_reg_2", "mime_type": "image/png"})
+d = bot.public_data(); k2 = d["content"]["car"]["photos"][0]
+check("car photo as file, replaces old", k2 != k1 and len(d["content"]["car"]["photos"]) == 1)
+tap(2, "ct:rules:photo"); bot.load_state(); bot.S["users"]["2"]["aw"] = "car_photo"; bot.save_state()
+dm(2, photo=[{"file_id": "evil"}]); d = bot.public_data(); check("others cannot replace car photo", d["content"]["car"]["photos"][0] == k2)
+tap(1, "rc:reset"); d = bot.public_data(); check("car photo reset to PDF", d["content"]["car"]["photos"] == [])
+bot.load_state(); del bot.S["content"]["car"]; bot.save_state(); bot.load_state()
+check("old state gets car section", bot.S["content"]["car"] == {"text": "", "photos": []})
+
 print("\n".join(checks))
 failed = sum(x.startswith("FAIL") for x in checks)
 print("FAILED:", failed, "of", len(checks))

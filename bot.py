@@ -27,6 +27,8 @@ TITLE = "Khinkali Racing Championship"
 
 CLUB_MAX = 6          # пилотов в клубе
 SIZES = [16, 32, 64]  # размеры сетки
+# Кто может менять картинку «Регламент авто» в приложении (только один человек)
+CAR_ADMIN = int(os.environ.get("CAR_ADMIN", "5607731610") or 0)
 REG_MAX = 64          # больше на этап не записываем
 OMT_MAX = 2           # сколько OMT подряд можно в одной паре, дальше судьи обязаны выбрать
 JUDGE_REMIND_MIN = 20
@@ -46,7 +48,8 @@ LOCK = threading.RLock()
 
 def fresh():
     return {"users": {}, "pilots": {}, "clubs": {}, "orgs": [], "stages": {}, "points": POINTS, "log": [],
-            "content": {"rules": {"text": "", "photos": []}, "about": {"text": "", "photos": []}},
+            "content": {"rules": {"text": "", "photos": []}, "about": {"text": "", "photos": []},
+                        "car": {"text": "", "photos": []}},
             "seq": {"pid": 0, "club": 0, "stage": 0, "img": 0},
             "news": [], "season": {"n": 1, "name": "Сезон 1"}, "seasons": [], "vids": [], "banned": {}}
 
@@ -85,6 +88,7 @@ def load_state():
         base = fresh()
         base.update(d)
         S = base
+        S["content"].setdefault("car", {"text": "", "photos": []})
 
 
 def save_state():
@@ -1203,7 +1207,8 @@ def org_menu(uid):
             for st in sts[-10:]]
     rows += [[b("➕ Новый этап", "st:new"), b("👥 Клубы", "oc:list")], [b("📜 Регламент", "ct:rules"), b("ℹ️ О чемпионате", "ct:about")],
              [b("📰 Новости", "nw"), b("🔢 Очки", "pt")], [b("⛔ Отстранения", "bn"), b("📊 Судьи", "js")],
-             [b("👔 Организаторы", "og:list"), b("🏆 Сезон", "ss")] if is_owner(uid) else None, app_row()]
+             [b("👔 Организаторы", "og:list"), b("🏆 Сезон", "ss")] if is_owner(uid) else None,
+             [b("🚗 Фото регламента авто", "rc")] if uid == CAR_ADMIN else None, app_row()]
     send(uid, f"⚙️ Организатор · {S['season']['name']}: этапы, регламент, судьи.", kb(rows))
 
 
@@ -1402,6 +1407,9 @@ def on_text(msg, uid, aw, text):
         S["content"][page]["text"] = text.strip()[:6000]
         send(uid, "✅ Текст сохранён — он уже в приложении.")
         return content_menu(uid, page)
+    if aw == "car_photo":
+        u["aw"] = aw
+        return send(uid, "Жду фото регламента авто (картинкой или файлом). Передумал — /cancel.")
     if aw.startswith("ct_photo:"):
         if text.strip() in ("/done", "/skip"):
             return content_menu(uid, aw.split(":")[1])
@@ -1443,6 +1451,26 @@ def judges_menu(uid, st):
     rows += [[b("➕ Добавить судью", f"sj:{st['id']}:add")], [b("⬅️ К этапу", f"sm:{st['id']}")]]
     send(uid, f"👨‍⚖️ Судьи · {st['title']} (нужно: {st['jn']})\n"
               + ("\n".join(f"• {mention(j)}" for j in st["judges"]) or "Пока никого."), kb(rows))
+
+
+def car_menu(uid):
+    has = bool(S["content"]["car"]["photos"])
+    rows = [[b("📤 Заменить фото", "rc:new")]]
+    if has:
+        rows.append([b("↩️ Вернуть картинку из PDF", "rc:reset")])
+    rows.append([b("⬅️ Назад", "m:org")])
+    send(uid, "🚗 Регламент авто — главная картинка на странице «Регламент» в приложении.\n\n"
+              + ("Сейчас стоит фото, которое ты прислал." if has else "Сейчас стоит картинка из PDF регламента.")
+              + "\n\nЛучше присылать файлом (без сжатия) — так таблица будет чётче.", kb(rows))
+
+
+def car_photo_id(msg):
+    if msg.get("photo"):
+        return msg["photo"][-1]["file_id"]
+    d = msg.get("document") or {}
+    if (d.get("mime_type") or "").startswith("image/"):
+        return d.get("file_id")
+    return None
 
 
 def content_menu(uid, page):
@@ -1498,6 +1526,11 @@ def handle(msg):
         pilot(uid)["photo"] = {"k": f"p{next_id('img')}", "f": msg["photo"][-1]["file_id"]}
         send(uid, "📸 Фото машины сохранено — оно в твоём профиле в приложении.")
         return card_menu(uid)
+    if aw == "car_photo" and uid == CAR_ADMIN and car_photo_id(msg):
+        u.pop("aw", None)
+        S["content"]["car"]["photos"] = [{"k": f"c{next_id('img')}", "f": car_photo_id(msg)}]
+        send(uid, "✅ Фото регламента авто обновлено — в приложении уже новое.")
+        return car_menu(uid)
     if aw.startswith("ct_photo:") and msg.get("photo"):
         page = aw.split(":")[1]
         S["content"][page]["photos"].append({"k": str(next_id("img")), "f": msg["photo"][-1]["file_id"]})
@@ -1536,6 +1569,8 @@ def handle(msg):
         return club_menu(uid)
     if cmd == "/stages":
         return stages_menu(uid)
+    if cmd == "/carphoto" and uid == CAR_ADMIN:
+        return car_menu(uid)
     if cmd == "/admin" and is_org(uid):
         return org_menu(uid)
     if aw and text:
@@ -1630,6 +1665,17 @@ def handle_cb(cq):
         return protest_start(cq, p[1], p[2])
     if k == "pv":
         return protest_vote(cq, p[1], p[2], p[3])
+    if k == "rc":
+        if uid != CAR_ADMIN:
+            return answer(cq, "Менять это фото может только владелец.", True)
+        answer(cq)
+        if len(p) > 1 and p[1] == "new":
+            user(uid)["aw"] = "car_photo"
+            return send(uid, "Пришли новое фото регламента авто — картинкой или файлом. Отмена — /cancel.")
+        if len(p) > 1 and p[1] == "reset":
+            S["content"]["car"]["photos"] = []
+            send(uid, "↩️ Вернул картинку из PDF регламента.")
+        return car_menu(uid)
     if not is_org(uid):
         return answer(cq, "Это для организаторов.", True)
     return org_cb(cq, uid, p)
@@ -1776,6 +1822,8 @@ def org_cb(cq, uid, p):
     if k == "ct":
         page = p[1]
         answer(cq)
+        if page not in ("rules", "about"):
+            return
         if len(p) == 2:
             return content_menu(uid, page)
         if p[2] == "text":
