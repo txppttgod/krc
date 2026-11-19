@@ -602,6 +602,9 @@ tap(1, "rc:reset"); d = bot.public_data(); check("car photo reset to PDF", d["co
 bot.load_state(); del bot.S["content"]["car"]; bot.save_state(); bot.load_state()
 check("old state gets car section", bot.S["content"]["car"] == {"text": "", "photos": []})
 
+tap(1, "rc:new"); dm(1, photo=[{"file_id": "car_reg_3"}]); bot.load_state()
+k3 = bot.S["content"]["car"]["photos"][0]["k"]; bot._img.clear(); bot.warm_images()
+check("car photo warmed up after wake", bot._img.get(k3) == b"jpgbytes")
 print("\n".join(checks))
 failed = sum(x.startswith("FAIL") for x in checks)
 print("FAILED:", failed, "of", len(checks))

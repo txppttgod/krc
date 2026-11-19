@@ -481,6 +481,13 @@ function renderClubs() {
     + `<p class="note">В клубный зачёт идут очки всех пилотов клуба. Ушёл пилот — его очки уходят вместе с ним.</p>`
     : '<div class="empty">Клубов пока нет. Капитан создаёт клуб в боте.</div>') + link('👥 Клуб в боте', 'club', 'btn ghost');
 }
+// Бот на бесплатном Render просыпается до минуты — картинку пробуем загрузить ещё несколько раз
+function imgRetry(img) {
+  const n = +(img.dataset.n || 0) + 1;
+  img.dataset.n = n;
+  if (n <= 6) { setTimeout(() => { img.src = img.src.split('?')[0] + '?r=' + n; }, 4000); return; }
+  img.closest('a').outerHTML = '<div class="card note">Картинка не загрузилась — бот просыпается. <a href="#" onclick="renderRules();return false" style="color:var(--accent)">Обновить</a></div>';
+}
 function renderRules() {
   const r = D.content.rules || {};
   // Колёсный регламент: свежая картинка из бота, иначе — из PDF регламента
@@ -489,7 +496,7 @@ function renderRules() {
   const reg = typeof REGLAMENT === 'undefined' ? [] : REGLAMENT;
   document.getElementById('rules').innerHTML = `<h2>Регламент</h2>
     <h3>🚗 Регламент авто</h3>
-    <a class="regcar" href="${car}" target="_blank" rel="noopener"><img alt="Колёсный регламент: ширина, диаметр и профиль шин по весу машины" src="${car}"></a>
+    <a class="regcar" href="${car}" target="_blank" rel="noopener"><img alt="Колёсный регламент: ширина, диаметр и профиль шин по весу машины" src="${car}" onerror="imgRetry(this)"></a>
     <p class="note">Максимальные параметры колёс обеих осей по весу машины. Меньше — можно, больше — нельзя. Нажми на картинку, чтобы открыть крупно.</p>
     ${r.text || (r.photos || []).length ? `<div class="card">${r.text ? `<div class="text">${esc(r.text)}</div>` : ''}
     <div class="photos">${(r.photos || []).map(k => `<img loading="lazy" alt="" src="${BOT_URL}/img/${encodeURIComponent(k)}">`).join('')}</div></div>` : ''}

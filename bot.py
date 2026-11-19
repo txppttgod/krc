@@ -2139,21 +2139,42 @@ def scheduler_loop():
 _img = {}
 
 
+def image_file(key):
+    return next((ph["f"] for c in S["content"].values() for ph in c.get("photos", []) if ph["k"] == key), None) or \
+        next((p["photo"]["f"] for p in S["pilots"].values() if p.get("photo", {}).get("k") == key), None)
+
+
+def fetch_image(key, f):
+    # Телеграм с Render иногда отвечает долго — пробуем несколько раз
+    if key in _img:
+        return _img[key]
+    for _ in range(3):
+        try:
+            path = requests.post(f"{API}/getFile", json={"file_id": f}, timeout=20).json().get("result", {}).get("file_path")
+            if path:
+                r = requests.get(f"https://api.telegram.org/file/bot{TOKEN}/{path}", timeout=30)
+                if r.status_code == 200:
+                    _img[key] = r.content
+                    return r.content
+        except Exception as e:
+            print("Ошибка картинки:", repr(e))
+    return None
+
+
+def warm_images():
+    # после пробуждения сразу подтягиваем картинку регламента авто, чтобы сайт открыл её без ожидания
+    with LOCK:
+        load_state()
+        keys = [(ph["k"], ph["f"]) for ph in S["content"].get("car", {}).get("photos", [])]
+    for k, f in keys:
+        fetch_image(k, f)
+
+
 def image_bytes(key):
     if key in _img:
         return _img[key]
-    f = next((ph["f"] for c in S["content"].values() for ph in c.get("photos", []) if ph["k"] == key), None) or \
-        next((p["photo"]["f"] for p in S["pilots"].values() if p.get("photo", {}).get("k") == key), None)
-    if not f:
-        return None
-    path = api("getFile", {"file_id": f}).get("result", {}).get("file_path")
-    if not path:
-        return None
-    r = requests.get(f"https://api.telegram.org/file/bot{TOKEN}/{path}", timeout=30)
-    if r.status_code == 200:
-        _img[key] = r.content
-        return r.content
-    return None
+    f = image_file(key)
+    return fetch_image(key, f) if f else None
 
 
 # ---------- Сервер ----------
@@ -2202,13 +2223,13 @@ class Handler(BaseHTTPRequestHandler):
                 data = public_data()
             return self.reply_json(data)
         if self.path.startswith("/img/"):
-            with LOCK:
-                load_state()
-                try:
-                    data = image_bytes(self.path.split("/")[2].split("?")[0])
-                except Exception as e:
-                    print("Ошибка картинки:", repr(e))
-                    data = None
+            key = self.path.split("/")[2].split("?")[0]
+            data = _img.get(key)
+            if data is None:
+                with LOCK:  # под замком только ищем файл, качаем без замка — бот не подвисает
+                    load_state()
+                    f = image_file(key)
+                data = fetch_image(key, f) if f else None
             self.send_response(200 if data else 404)
             self.send_header("Access-Control-Allow-Origin", "*")
             if data:
@@ -2250,4 +2271,5 @@ if __name__ == "__main__":
     load_state()
     setup()
     threading.Thread(target=scheduler_loop, daemon=True).start()
+    threading.Thread(target=warm_images, daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", int(os.environ.get("PORT", 10000))), Handler).serve_forever()
