@@ -99,6 +99,13 @@ td.n{text-align:right;font-family:var(--race)}
 tr.click{cursor:pointer}
 .stat3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0}
 .stat3 div{background:var(--card2);border-radius:12px;padding:10px;text-align:center}
+.carimg{width:100%;border-radius:12px;margin:10px 0;display:block}
+.badge.test{background:#1d2a3a;color:#8cc4ff}
+.fan{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
+.fan:first-child{border-top:0}
+.fan .nm{flex:1;min-width:0}
+.fan button{background:var(--card2);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:6px 10px;cursor:pointer}
+.fan button.on{background:var(--accent);border-color:var(--accent)}
 .stat3 b{display:block;font-family:var(--race);font-weight:400;font-size:20px}
 </style>
 </head>
@@ -171,7 +178,8 @@ function show(name) {
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.t === name || (name === 'stage' && b.dataset.t === 'stages')));
   window.scrollTo(0, 0);
 }
-const badge = st => `<span class="badge ${st.state}">${STATE[st.state]}</span>`;
+const badge = st => `<span class="badge ${st.state}">${STATE[st.state]}</span>${st.test ? ' <span class="badge test">тест</span>' : ''}`;
+const pn = pl => pl ? (pl.num ? '#' + pl.num + ' ' : '') + pl.nick : '';
 const pilotLine = (p, i, pts, sub) => `<div class="row"><span class="pl ${i < 3 ? 'p' + (i + 1) : ''}">${i + 1}</span>
   <div class="nm">${esc(p.nick || p.name)}${sub ? `<small>${esc(sub)}</small>` : ''}</div><span class="pt">${pts}</span></div>`;
 
@@ -226,7 +234,10 @@ function renderStage() {
       <div>Квалификация: ${st.qual ? 'да, по видео соло-заезда' : 'нет, посев по очкам сезона или жребием'}</div>
       <div>Судей: ${st.jn}${st.judges.length ? ' — ' + st.judges.map(esc).join(', ') : ''}</div>
       <div>Время на заезд: ${st.dl ? st.dl + ' мин' : 'без ограничения'} · протесты: ${st.pw ? 'в течение ' + st.pw + ' мин после решения' : 'нет'}</div>
-      ${st.state === 'reg' ? link('✋ Записаться', 'rg_' + st.id) : ''}</div>`;
+      ${st.appr ? '<div>Заявки одобряет организатор</div>' : ''}${st.test ? '<div>🧪 Тестовый этап — очки не начисляются</div>' : ''}
+      ${st.state === 'reg' ? link(st.appr ? '✋ Подать заявку' : '✋ Записаться', 'rg_' + st.id) : ''}</div>
+      ${st.sched ? `<h3>🕒 Расписание</h3><div class="card text">${esc(st.sched)}</div>` : ''}
+      ${st.dsq.length ? `<h3>⛔ Дисквалифицированы</h3><div class="card">${st.dsq.map(([n, w]) => `<div class="row"><div class="nm">${esc(n)}<small>${esc(w)}</small></div></div>`).join('')}</div>` : ''}`;
     ['q', 'b'].forEach(k => { const tz = st.tz[k]; if (!tz) return;
       h += `<h3>📋 ТЗ ${k === 'q' ? 'квалификации' : 'парных заездов'}</h3><div class="card"><div class="text">${esc(tz.text)}</div>
         ${tz.video ? link('🎥 Получить видео ТЗ в Телеграме', `tz_${st.id}_${k}`, 'btn ghost') : ''}</div>`; });
@@ -245,11 +256,12 @@ function renderStage() {
         <td>${r[2] === 'ok' ? '✅' : r[2] === 'wait' ? '⏳' : '❌'}</td></tr>`).join('')}</table></div>
       <p class="note">✅ засчитано · ⏳ у судей · ❌ не по ТЗ. В сетку проходят топ-${st.size}.</p>` : '<div class="empty">Квалификацию ещё никто не сдал.</div>';
   } else if (stageTab === 'reg') {
-    h += st.reg.length ? `<div class="card">${st.reg.map((p, i) => `<div class="row"><span class="pl">${i + 1}</span><div class="nm">${esc(p.nick)}<small>${esc(p.club || 'соло')}</small></div></div>`).join('')}</div>`
+    h += st.reg.length ? `<div class="card">${st.reg.map((p, i) => `<div class="row"><span class="pl">${i + 1}</span><div class="nm">${esc(pn(p))}<small>${esc(p.club || 'соло')}</small></div></div>`).join('')}</div>`
       : '<div class="empty">Пока никто не записался.</div>';
   } else if (stageTab === 'res') {
     h += `<div class="card">${st.places.map(([p, place, pts], i) => `<div class="row"><span class="pl ${place <= 3 ? 'p' + place : ''}">${place}</span>
-      <div class="nm">${esc(p.nick)}<small>${esc(p.club || 'соло')}</small></div><span class="pt">+${pts}</span></div>`).join('')}</div>`;
+      <div class="nm">${esc(pn(p))}<small>${esc(p.club || 'соло')}${st.dsq.some(d => d[0] === p.nick) ? ' · ⛔ DSQ' : ''}</small></div><span class="pt">+${pts}</span></div>`).join('')}</div>`;
+    h += fanBlock(st);
   }
   el.innerHTML = h;
 }
@@ -299,7 +311,7 @@ function mcard(st, m, p, style) {
   const row = (side, pl, sd) => {
     const win = m.w === side, lose = m.w && m.w !== side && m.done;
     const icon = win && m.manual ? '⚖️' : win ? '✓' : '';
-    return `<div class="r ${win ? 'w' : ''} ${lose && pl ? 'l' : ''}"><span class="sd">${sd || ''}</span><span class="nk">${pl ? esc(pl.nick) : (m.done || m.bye ? 'BYE' : '—')}</span><span class="ic">${icon}</span></div>`;
+    return `<div class="r ${win ? 'w' : ''} ${lose && pl ? 'l' : ''}"><span class="sd">${sd || ''}</span><span class="nk">${pl ? esc(pn(pl)) : (m.done || m.bye ? 'BYE' : '—')}</span><span class="ic">${icon}</span></div>`;
   };
   const cls = m.bye ? 'bye' : m.judging ? 'judging' : m.live ? 'live' : '';
   const tag = m.judging ? 'у судей' : m.live ? 'едут' : m.omt ? `OMT×${m.omt}` : '';
@@ -396,7 +408,7 @@ function renderPilots() {
   const done = D.stages.filter(s => s.state === 'done' && (s.season || 1) === curSeason());
   document.getElementById('pilots').innerHTML = `<h2>Личный зачёт · ${esc(D.season ? D.season.name : '')}</h2>` + (D.pilots.length ? `<div class="card" style="overflow-x:auto"><table>
     <tr><th>#</th><th>Пилот</th>${done.map(s => `<th style="text-align:right">Э${s.n}</th>`).join('')}<th style="text-align:right">Очки</th></tr>
-    ${D.pilots.map((p, i) => `<tr class="click" onclick="openPilot(${p.id})"><td>${i + 1}</td><td>${esc(p.nick)}<div class="note">${esc(p.club || 'соло')}</div></td>
+    ${D.pilots.map((p, i) => `<tr class="click" onclick="openPilot(${p.id})"><td>${i + 1}</td><td>${p.num ? '<span class="note">#' + p.num + '</span> ' : ''}${esc(p.nick)}${p.banned ? ' ⛔' : ''}${(p.fan || []).length ? ' 🎖' : ''}<div class="note">${esc(p.club || 'соло')}</div></td>
       ${done.map(s => `<td class="n" style="color:var(--muted)">${p.stages[s.id] ?? '·'}</td>`).join('')}<td class="n">${p.pts}</td></tr>`).join('')}</table></div>
     <p class="note">Очки за итоговое место на этапе: ${D.points.map(([mx, pt], i) => (i && D.points[i - 1][0] + 1 < mx ? (D.points[i - 1][0] + 1) + '–' : '') + mx + ' — ' + pt).join(' · ')}.</p>`
     : '<div class="empty">Пилотов пока нет.</div>') + seasonsArchive();
@@ -407,10 +419,36 @@ function seasonsArchive() {
     ${s.pilots.slice(0, 3).map((p, i) => `<div class="row"><span class="pl p${i + 1}">${i + 1}</span><div class="nm">${esc(p[0])}<small>${esc(p[1] || 'соло')}</small></div><span class="pt">${p[2]}</span></div>`).join('')}
     ${s.clubs.length ? `<div class="note" style="margin-top:6px">Лучший клуб: ${esc(s.clubs[0][0])} — ${s.clubs[0][1]}</div>` : ''}</div>`).join('');
 }
+// Зрительский приз: голосуем за лучшую пару этапа
+function fanBlock(st) {
+  if (st.test) return '';
+  const pairs = st.matches.filter(m => m.done && !m.bye && m.a && m.b);
+  if (!pairs.length) return '';
+  if (st.fan_best) {
+    const m = st.matches.find(x => x.id === st.fan_best);
+    return `<h3>🎖 Пара этапа — выбор зрителей</h3><div class="card"><b>${esc(pn(m.a))} vs ${esc(pn(m.b))}</b><div class="note">${esc(m.name)} · голосов: ${st.fans[m.id] || 0}</div></div>`;
+  }
+  if (!st.fan_open) return '';
+  const mine = (ME.fans || {})[st.id];
+  const left = Math.max(0, Math.round((st.fan_until * 1000 - Date.now()) / 3600000));
+  return `<h3>🎖 Голосуй за пару этапа</h3><p class="note">Голосование ещё ~${left} ч. ${TG ? 'Можно поменять выбор.' : 'Голосовать можно в приложении внутри Телеграма.'}</p>
+    <div class="card">${pairs.map(m => `<div class="fan"><div class="nm">${esc(pn(m.a))} vs ${esc(pn(m.b))}<div class="note">${esc(m.name)} · ${st.fans[m.id] || 0} гол.</div></div>
+      ${TG ? `<button class="${mine === m.id ? 'on' : ''}" onclick="fanVote('${st.id}','${m.id}')">${mine === m.id ? '✓ мой голос' : 'Голосую'}</button>` : ''}</div>`).join('')}</div>`;
+}
+async function fanVote(sid, mid) {
+  const r = await api({ act: 'fan', sid, mid });
+  if (!r.ok) { alert(r.error); return; }
+  ME.fans = Object.assign({}, ME.fans, { [sid]: mid });
+  await load();
+}
 function openPilot(id) {
   const p = D.pilots.find(x => x.id === id); if (!p) return;
   const place = D.pilots.indexOf(p) + 1;
-  document.getElementById('sheetBody').innerHTML = `<h2 style="margin:0">${esc(p.nick)}</h2><div class="note">${esc(p.club || 'соло')} · ${esc(D.season ? D.season.name : '')}</div>
+  document.getElementById('sheetBody').innerHTML = `<h2 style="margin:0">${p.num ? '#' + p.num + ' ' : ''}${esc(p.nick)}</h2>
+    <div class="note">${esc(p.club || 'соло')} · ${esc(D.season ? D.season.name : '')}${p.car ? ' · 🚗 ' + esc(p.car) : ''}</div>
+    ${p.banned ? `<div class="card" style="margin-top:10px;border-color:var(--accent)">⛔ Отстранён: ${esc(p.banned)}</div>` : ''}
+    ${p.photo ? `<img class="carimg" loading="lazy" alt="" src="${BOT_URL}/img/${encodeURIComponent(p.photo)}">` : ''}
+    ${(p.fan || []).length ? `<div style="margin-top:8px">${p.fan.map(t => `<span class="badge done">🎖 Пара этапа · ${esc(t)}</span>`).join(' ')}</div>` : ''}
     <div class="stat3"><div><span class="note">Место</span><b>${p.pts ? place : '—'}</b></div><div><span class="note">Очки</span><b>${p.pts}</b></div>
       <div><span class="note">Пары</span><b>${p.w}–${p.l}</b></div></div>
     ${p.hist.length ? `<div class="card">${p.hist.map(h => `<div class="row"><span class="pl ${h[1] <= 3 ? 'p' + h[1] : ''}">${h[1]}</span><div class="nm">${esc(h[0])}</div><span class="pt">+${h[2]}</span></div>`).join('')}</div>`

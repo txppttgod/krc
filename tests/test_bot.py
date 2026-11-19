@@ -502,6 +502,84 @@ check("new season starts from zero", not bot.season_points() and all(p["pts"] ==
 tap(2, "st:new"); tap(2, "sd:ok")
 check("new stages belong to new season", bot.S["stages"] and S()["stages"]["6"]["season"] == 2)
 
+# ---------- тестовый этап, заявки, ДСК, отстранение, анкета, следующая пара, судьи, выгрузка, зрители ----------
+pts_before = bot.season_points()
+tap(2, "st:new"); tap(2, "sd:qual"); tap(2, "sd:size"); tap(2, "sd:size"); tap(2, "sd:test"); tap(2, "sd:appr")
+c = tap(2, "sd:ok")
+st7 = max(S()["stages"], key=int)
+check("test stage with approval", S()["stages"][st7]["test"] and S()["stages"][st7]["appr"] and "тест" in texts(c))
+tap(2, f"sj:{st7}:add"); dm(2, "@user11")
+tap(2, f"sa:{st7}:open")
+c = tap(101, f"rg:{st7}")
+check("registration goes to approval", 101 in S()["stages"][st7]["pend"] and 101 not in S()["stages"][st7]["reg"]
+      and any(f"ap:{st7}:101:ok" == x for x in btns(c)))
+c = tap(101, f"rg:{st7}"); check("pending twice", "уже у организаторов" in texts(c))
+c = tap(2, f"ap:{st7}:101:ok"); check("organizer approves", 101 in S()["stages"][st7]["reg"] and any("принята" in p.get("text", "") for p in to(c, 101)))
+c = tap(2, f"ap:{st7}:101:ok"); check("approve twice safe", "уже рассмотрена" in texts(c))
+tap(102, f"rg:{st7}"); c = tap(2, f"ap:{st7}:102:no")
+check("organizer rejects", 102 not in S()["stages"][st7]["reg"] and any("отклонили" in p.get("text", "") for p in to(c, 102)))
+for i in (103, 104, 105, 106):
+    tap(i, f"rg:{st7}"); tap(2, f"ap:{st7}:{i}:ok")
+tap(107, f"rg:{st7}"); c = tap(2, f"sa:{st7}:pend"); check("pending list in stage menu", f"ap:{st7}:107:ok" in btns(c))
+tap(107, f"ul:{st7}"); check("withdraw pending", 107 not in S()["stages"][st7]["pend"])
+tap(2, f"sa:{st7}:sched"); dm(2, "19:00 — топ-8\n20:00 — финалы")
+check("schedule saved", S()["stages"][st7]["sched"].startswith("19:00"))
+tap(2, f"sa:{st7}:dsql"); tap(2, f"sa:{st7}:dsq:106"); c = dm(2, "Не та машина")
+check("DSQ in registration removes pilot", 106 not in S()["stages"][st7]["reg"] and S()["stages"][st7]["dsq"]["106"] == "Не та машина"
+      and any("дисквалифицирован" in p.get("text", "") for p in to(c, 106)))
+c = tap(2, f"sa:{st7}:br")
+s7 = S()["stages"][st7]
+check("bracket of test stage", s7["state"] == "run" and len(s7["seeds"]) == 4)
+check("next pair alert", any("ваша пара следующая" in p.get("text", "") for m, p in c))
+opened = [m for m in s7["matches"] if m["open"] and not m["done"]]
+victim = opened[0]["pa"]
+tap(2, f"sa:{st7}:dsq:{victim}"); c = dm(2, "Неспортивное поведение")
+mv = next(m for m in S()["stages"][st7]["matches"] if victim in (m["pa"], m["pb"]) and not m["bye"])
+check("DSQ during bracket = technical loss", mv["done"] and mv["l"] == victim)
+# анкета пилота
+c = tap(103, "m:card"); check("card menu", "m:num" in btns(c))
+tap(103, "m:num"); c = dm(103, "1000"); check("number range", "от 1 до 999" in texts(c))
+c = dm(103, "#77"); check("number saved", S()["pilots"]["103"]["num"] == 77)
+tap(104, "m:num"); c = dm(104, "77"); check("number unique", "занят" in texts(c))
+dm(104, "/cancel")
+tap(103, "m:car"); dm(103, "Nissan Silvia S15")
+tap(103, "m:pphoto"); c = dm(103, photo=[{"file_id": "s"}, {"file_id": "car103"}])
+bot.load_state(); key = bot.S["pilots"]["103"]["photo"]["k"]
+check("car and photo saved", bot.S["pilots"]["103"]["car"] == "Nissan Silvia S15" and bot.image_bytes(key) == b"jpgbytes")
+# прогоняем тестовый этап до конца
+run_all(st7)
+s7 = S()["stages"][st7]
+check("test stage finished without points", s7["state"] == "done" and all(v == 0 for v in s7["pts"].values())
+      and bot.season_points() == pts_before)
+c = tap(2, f"sa:{st7}:csv"); check("CSV export sent", any(m == "sendDocument" for m, p in c))
+csv_text = bot.stage_csv(S()["stages"][st7]).decode("utf-8-sig")
+check("CSV has places and pairs", "Место;Пилот;Номер;Клуб;Очки" in csv_text and "Пара;Раунд" in csv_text and "#" not in csv_text.split("\n")[3][:0] + "")
+c = tap(2, "js"); check("judge stats", "Статистика судей" in texts(c) and "N11" in texts(c))
+# голос зрителей за пару этапа (на тестовом этапе нет, на обычном — есть)
+bot.load_state(); real = bot.S["stages"]["5"]; real["done_t"] = int(time.time()); bot.save_state()
+pair = next(m for m in real["matches"] if not m["bye"] and m["done"])
+r = api({"init": init_for(150), "act": "fan", "sid": st7, "mid": pair["id"]}); check("no fan vote on test stage", not r["ok"])
+r = api({"init": init_for(150), "act": "fan", "sid": "5", "mid": pair["id"]}); check("fan vote", r["ok"])
+r = api({"init": init_for(151), "act": "fan", "sid": "5", "mid": pair["id"]})
+r = api({"init": init_for(150), "act": "me"}); check("my fan vote remembered", r["fans"].get("5") == pair["id"])
+d5 = [x for x in bot.public_data()["stages"] if x["id"] == "5"][0]
+check("fan votes public", d5["fans"][pair["id"]] == 2 and d5["fan_open"] and d5["fan_best"] is None)
+bot.load_state(); bot.S["stages"]["5"]["done_t"] -= 49 * 3600; bot.save_state()
+d = bot.public_data(); d5 = [x for x in d["stages"] if x["id"] == "5"][0]
+winners = {p_["nick"] for p_ in d["pilots"] if p_["fan"]}
+check("fan prize after voting closes", d5["fan_best"] == pair["id"] and not d5["fan_open"]
+      and winners == {bot.nick(pair["pa"]), bot.nick(pair["pb"])})
+r = api({"init": init_for(152), "act": "fan", "sid": "5", "mid": pair["id"]}); check("fan vote closed", not r["ok"])
+# отстранение от чемпионата
+tap(2, "bn:add"); dm(2, "Nobody"); c = dm(2, "Pilot108")
+c = dm(2, "Накрутка")
+check("pilot banned", "108" in S()["banned"] and any("отстранён" in p.get("text", "") for p in to(c, 108)))
+tap(2, "st:new"); tap(2, "sd:qual"); tap(2, "sd:ok"); st8 = max(S()["stages"], key=int); tap(2, f"sa:{st8}:open")
+c = tap(108, f"rg:{st8}"); check("banned pilot cannot register", "отстранён" in texts(c) and 108 not in S()["stages"][st8]["reg"])
+d = bot.public_data(); check("ban visible in app data", next(p_ for p_ in d["pilots"] if p_["nick"] == "Pilot108")["banned"] == "Накрутка")
+c = tap(2, "bn:rm:108"); check("pilot returned", "108" not in S()["banned"])
+d = bot.public_data(); p103 = next(p_ for p_ in d["pilots"] if p_["nick"] == "Pilot103")
+check("pilot card in app data", p103["num"] == 77 and p103["car"] == "Nissan Silvia S15" and p103["photo"])
 print("\n".join(checks))
 failed = sum(x.startswith("FAIL") for x in checks)
 print("FAILED:", failed, "of", len(checks))

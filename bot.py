@@ -32,6 +32,7 @@ OMT_MAX = 2           # сколько OMT подряд можно в одной
 JUDGE_REMIND_MIN = 20
 DL_OPTS = [0, 30, 60, 120]   # дедлайн на пару, мин (0 — без дедлайна), выбирает организатор
 PW_OPTS = [0, 10, 30]        # окно для протеста после решения судей, мин (0 — без протестов)
+FAN_HOURS = 48               # сколько часов после этапа зрители голосуют за пару этапа
 # Очки за итоговое место на этапе (по образцу Formula Drift): [до какого места, очки]
 POINTS = [[1, 100], [2, 88], [3, 76], [4, 64], [8, 48], [16, 32], [32, 16], [64, 8]]
 
@@ -47,7 +48,7 @@ def fresh():
     return {"users": {}, "pilots": {}, "clubs": {}, "orgs": [], "stages": {}, "points": POINTS, "log": [],
             "content": {"rules": {"text": "", "photos": []}, "about": {"text": "", "photos": []}},
             "seq": {"pid": 0, "club": 0, "stage": 0, "img": 0},
-            "news": [], "season": {"n": 1, "name": "Сезон 1"}, "seasons": [], "vids": []}
+            "news": [], "season": {"n": 1, "name": "Сезон 1"}, "seasons": [], "vids": [], "banned": {}}
 
 
 S = fresh()
@@ -213,7 +214,7 @@ def cur_season():
 def season_points():
     tot = {}
     for st in S["stages"].values():
-        if st["state"] == "done" and st.get("season", 1) == cur_season():
+        if st["state"] == "done" and st.get("season", 1) == cur_season() and not st.get("test"):
             for u, p in st.get("pts", {}).items():
                 tot[u] = tot.get(u, 0) + p
     return tot
@@ -318,6 +319,11 @@ def advance(st):
                 opened.append(m)
     for m in opened:
         notify_open(st, m)
+    for m in opened:  # дисквалифицированный в новой паре — сразу тех. поражение
+        if not m["done"] and (str(m["pa"]) in st.get("dsq", {}) or str(m["pb"]) in st.get("dsq", {})):
+            set_result(st, m, "b" if str(m["pa"]) in st["dsq"] else "a")
+            return
+    notify_next(st)
     if st["state"] == "run" and st["matches"] and all(m["done"] for m in st["matches"]):
         finish_stage(st)
 
@@ -347,14 +353,16 @@ def stage_places(st):
 
 def finish_stage(st):
     st["state"] = "done"
+    st["done_t"] = int(time.time())
     st["places"] = stage_places(st)
-    st["pts"] = {u: place_points(p) for u, p in st["places"].items()}
+    st["pts"] = {u: 0 if u in st.get("dsq", {}) or st.get("test") else place_points(p) for u, p in st["places"].items()}
     top = sorted(st["places"].items(), key=lambda x: x[1])[:3]
     medals = ["🥇", "🥈", "🥉"]
     head = f"🏁 {st['title']} завершён!\n\n" + "\n".join(f"{medals[i]} {nick(int(u))}" for i, (u, _) in enumerate(top))
     for u, place in st["places"].items():
         send(int(u), head + f"\n\nТвоё место: {place}, очки в сезон: +{st['pts'][u]}")
-    orgs_dm(head + "\n\nОчки начислены, таблицы в приложении обновлены.")
+    orgs_dm(head + ("\n\n🧪 Тестовый этап — очки не начислялись." if st.get("test") else "\n\nОчки начислены, таблицы в приложении обновлены.")
+            + f"\nЗрители {FAN_HOURS} ч голосуют в приложении за пару этапа.")
     log(None, f"{st['title']} завершён")
 
 
@@ -368,7 +376,8 @@ def new_stage(d):
     st = {"id": sid, "n": int(sid), "title": d["title"], "date": d.get("date", ""), "size": d["size"], "de": d["de"],
           "qual": d["qual"], "jn": d["jn"], "judges": [], "state": "draft", "reg": [], "qruns": {}, "seeds": [],
           "matches": [], "tz": {}, "places": {}, "pts": {}, "created": int(time.time()), "dl": d.get("dl", 0),
-          "pw": d.get("pw", 0), "season": cur_season()}
+          "pw": d.get("pw", 0), "season": cur_season(), "test": d.get("test", False), "appr": d.get("appr", False),
+          "pend": [], "dsq": {}, "sched": "", "fans": {}}
     S["stages"][sid] = st
     return st
 
@@ -382,7 +391,8 @@ def stage_desc(st):
           f"{'с квалификацией' if st['qual'] else 'без квалификации'} · судей: {st['jn']}\n" \
           f"Дедлайн на пару: {str(st.get('dl', 0)) + ' мин' if st.get('dl') else 'нет'} · " \
           f"протесты: {'в течение ' + str(st.get('pw', 0)) + ' мин' if st.get('pw') else 'нет'}"
-    return (f"🏁 {st['title']}" + (f" · {st['date']}" if st.get("date") else "") + f"\n{fmt}\nСтатус: {STATE_RU[st['state']]}"
+    return (f"{'🧪' if st.get('test') else '🏁'} {st['title']}" + (" (тест, без очков)" if st.get("test") else "")
+            + (f" · {st['date']}" if st.get("date") else "") + f"\n{fmt}\nСтатус: {STATE_RU[st['state']]}"
             + f"\nЗаписано: {len(st['reg'])}" + (f"\nСудьи: {', '.join(nick(j) for j in st['judges'])}" if st["judges"] else
                                                    "\nСудьи: не назначены"))
 
@@ -538,7 +548,8 @@ def upload_cb(cq, act, arg):
         if any(used_video(v.get("u")) for v in up["v"]):
             user(uid).pop("up", None)
             return answer(cq, "Одно из видео уже сдавали в чемпионате — нужен новый заезд.", True)
-        mark_videos(*(v.get("u") for v in up["v"]))
+        if not st.get("test"):
+            mark_videos(*(v.get("u") for v in up["v"]))
         vids = {v["lead"]: v["f"] for v in up["v"]}
         t = {"by": uid, "v": [vids["a"], vids["b"]], "votes": {}, "res": None, "t": int(time.time()), "jm": {}, "rem": 0}
         m["tries"].append(t)
@@ -636,6 +647,7 @@ def judge_vote(cq, sid, mid, ti, c):
              kb([[b("📣 Подать протест", f"pr:{st['id']}:{m['id']}")]]) if pw else None)
     log(None, f"{st['title']} · {m['name']}: {nick(win)} > {nick(lose)}")
     advance(st)
+    notify_next(st)
 
 
 def withdraw(cq, sid, mid, ti):
@@ -793,6 +805,135 @@ def finish_season(uid):
         send(int(x), f"🏁 {S['seasons'][-1]['name']} завершён!{champ}{club}\n\nНачинается {S['season']['name']} — очки с нуля.")
 
 
+# ---------- Следующая пара, дисквалификация, отстранение ----------
+def notify_next(st):
+    queue = [m for m in st["matches"] if m["open"] and not m["done"] and not m["tries"]]
+    if len(queue) > 1 and not queue[1].get("nx"):
+        m = queue[1]
+        m["nx"] = 1
+        for x in (m["pa"], m["pb"]):
+            send(x, f"🔜 {st['title']}: ваша пара следующая — {m['name']}, {nick(m['pa'])} vs {nick(m['pb'])}. Готовьтесь!")
+
+
+def disqualify(st, uid, why, who=None):
+    st.setdefault("dsq", {})[str(uid)] = why[:200]
+    log(who, f"{st['title']}: дисквалифицирован {nick(uid)} — {why}")
+    send(uid, f"⛔ Ты дисквалифицирован с этапа {st['title']}. Причина: {why}")
+    if uid in st.get("pend", []):
+        st["pend"].remove(uid)
+    if st["state"] in ("reg", "qual"):
+        if uid in st["reg"]:
+            st["reg"].remove(uid)
+        st["qruns"].pop(str(uid), None)
+        return
+    if st["state"] == "run":
+        m = next((m for m in st["matches"] if m["open"] and not m["done"] and uid in (m["pa"], m["pb"])), None)
+        if m:
+            set_result(st, m, "b" if m["pa"] == uid else "a", who)
+    if st["state"] == "done" and str(uid) in st["pts"]:
+        st["pts"][str(uid)] = 0
+
+
+def find_pilot_uid(text):
+    t = (text or "").strip()
+    uid = user_by_un(t) if t.startswith("@") else None
+    if uid and pilot(uid):
+        return uid
+    return next((int(k) for k, p in S["pilots"].items() if p["nick"].lower() == t.lstrip("@").lower()), None)
+
+
+def ban(uid, why, who=None):
+    S["banned"][str(uid)] = why[:200]
+    log(who, f"отстранён {nick(uid)} — {why}")
+    send(uid, f"⛔ Ты отстранён от {TITLE}. Причина: {why}")
+    for st in stage_list(["reg", "qual", "run"]):
+        if uid in st["reg"] or uid in st.get("pend", []) or uid in st.get("seeds", []):
+            disqualify(st, uid, why, who)
+
+
+# ---------- Статистика судей, выгрузка, зрительский приз ----------
+def judge_stats():
+    out = {}
+    for st in S["stages"].values():
+        for m in st["matches"]:
+            for t in m["tries"]:
+                if t["res"] is None:
+                    continue
+                for j, v in t["votes"].items():
+                    x = out.setdefault(j, {"n": 0, "omt": 0, "pr": 0, "pr_ok": 0})
+                    x["n"] += 1
+                    x["omt"] += v == "omt"
+            for pr in ([m["protest"]] if m.get("protest") else []) + m.get("protests", []):
+                last = next((t for t in reversed(m["tries"]) if t["res"] in ("a", "b", "reset")), None)
+                for j in (last or {}).get("votes", {}):
+                    x = out.setdefault(j, {"n": 0, "omt": 0, "pr": 0, "pr_ok": 0})
+                    x["pr"] += 1
+                    x["pr_ok"] += pr.get("res") == "omt"
+    return out
+
+
+def judge_stats_text():
+    st = judge_stats()
+    if not st:
+        return "📊 Судьи ещё ничего не судили."
+    rows = [f"• {nick(int(j))}: голосов {x['n']}, OMT {x['omt']} ({round(x['omt'] / x['n'] * 100) if x['n'] else 0}%), "
+            f"протестов по его парам {x['pr']}, принято {x['pr_ok']}" for j, x in sorted(st.items(), key=lambda kv: -kv[1]["n"])]
+    return "📊 Статистика судей (все этапы)\n\n" + "\n".join(rows)
+
+
+def stage_csv(st):
+    import csv
+    import io
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=";")
+    w.writerow([st["title"] + (" (тест)" if st.get("test") else ""), st.get("date", "")])
+    w.writerow([])
+    w.writerow(["Место", "Пилот", "Номер", "Клуб", "Очки", "Отметка"])
+    for u, place in sorted(st.get("places", {}).items(), key=lambda x: x[1]):
+        p = pilot(int(u)) or {}
+        w.writerow([place, nick(int(u)), p.get("num", ""), (club_of(int(u)) or {}).get("name", "соло"), st["pts"].get(u, 0),
+                    "DSQ: " + st["dsq"][u] if u in st.get("dsq", {}) else ""])
+    w.writerow([])
+    w.writerow(["Пара", "Раунд", "Пилот A", "Пилот B", "Победитель", "OMT", "Голоса судей"])
+    for m in st["matches"]:
+        if m["bye"]:
+            continue
+        votes = " | ".join(", ".join(f"{nick(int(j))}: {choice_name(m, v)}" for j, v in t["votes"].items())
+                           for t in m["tries"] if t["res"])
+        w.writerow([m["id"], m["name"], nick(m["pa"]) if m["pa"] else "", nick(m["pb"]) if m["pb"] else "",
+                    nick(m["w"]) if m["w"] else "", m["omt"], votes + (" (вручную)" if m.get("manual") else "")])
+    return ("﻿" + buf.getvalue()).encode("utf-8")
+
+
+def send_file(chat, name, data, caption=""):
+    try:
+        requests.post(f"{API}/sendDocument", data={"chat_id": chat, "caption": caption}, files={"document": (name, data)}, timeout=30)
+    except Exception as e:
+        print("Ошибка отправки файла:", e)
+
+
+def fan_open(st):
+    return st["state"] == "done" and not st.get("test") and time.time() - st.get("done_t", 0) < FAN_HOURS * 3600
+
+
+def fan_best(st):
+    cnt = {}
+    for mid in st.get("fans", {}).values():
+        cnt[mid] = cnt.get(mid, 0) + 1
+    return max(cnt, key=lambda k: (cnt[k], -[m["id"] for m in st["matches"]].index(k))) if cnt else None
+
+
+def fan_vote(uid, sid, mid):
+    st = S["stages"].get(str(sid))
+    if not st or not fan_open(st):
+        return {"ok": False, "error": "Голосование за пару этапа закрыто"}
+    m = mget(st, mid)
+    if not m or m["bye"] or not m["done"] or m["pa"] is None or m["pb"] is None:
+        return {"ok": False, "error": "За эту пару голосовать нельзя"}
+    st.setdefault("fans", {})[str(uid)] = mid
+    return {"ok": True}
+
+
 # ---------- Ручные правки организатора ----------
 def can_reset(st, m):
     deps = [x for x in st["matches"] if (x["a"].get("m") == m["id"] or x["b"].get("m") == m["id"])]
@@ -862,7 +1003,17 @@ def pub_pilot(uid):
         return None
     p = pilot(uid) or {}
     c = club_of(uid)
-    return {"id": p.get("pid"), "nick": nick(uid), "club": c["name"] if c else ""}
+    return {"id": p.get("pid"), "nick": nick(uid), "club": c["name"] if c else "", "num": p.get("num")}
+
+
+def fan_badges(uid):
+    out = []
+    for st in stage_list(["done"]):
+        best = fan_best(st) if not fan_open(st) else None
+        m = mget(st, best) if best else None
+        if m and uid in (m["pa"], m["pb"]):
+            out.append(st["title"])
+    return out
 
 
 def public_data():
@@ -886,7 +1037,12 @@ def public_data():
         qual = sorted(([nick(int(u)), r["score"], r["st"]] for u, r in st["qruns"].items()), key=lambda x: (x[2] != "ok", -x[1]))
         stages.append({"id": st["id"], "n": st["n"], "title": st["title"], "date": st.get("date", ""), "state": st["state"],
                        "size": st["size"], "de": st["de"], "qual": st["qual"], "jn": st["jn"], "dl": st.get("dl", 0),
-                       "pw": st.get("pw", 0), "season": st.get("season", 1),
+                       "pw": st.get("pw", 0), "season": st.get("season", 1), "test": st.get("test", False),
+                       "appr": st.get("appr", False), "sched": st.get("sched", ""),
+                       "dsq": [[nick(int(u)), why] for u, why in st.get("dsq", {}).items()],
+                       "fans": {mid: sum(1 for v in st.get("fans", {}).values() if v == mid) for mid in set(st.get("fans", {}).values())},
+                       "fan_open": fan_open(st), "fan_until": st.get("done_t", 0) + FAN_HOURS * 3600 if st.get("done_t") else None,
+                       "fan_best": fan_best(st) if st["state"] == "done" and not fan_open(st) else None,
                        "judges": [nick(j) for j in st["judges"]], "reg": [pub_pilot(u) for u in st["reg"]],
                        "qruns": qual, "matches": matches, "final": st.get("final"), "third": st.get("third"),
                        "bsize": st.get("bsize"),
@@ -894,13 +1050,13 @@ def public_data():
                                         key=lambda x: x[1]),
                        "tz": {k: {"text": v.get("text", ""), "video": bool(v.get("video"))} for k, v in st["tz"].items()}})
     pilots = []
-    cur_done = [st for st in stage_list(["done"]) if st.get("season", 1) == cur_season()]
+    cur_done = [st for st in stage_list(["done"]) if st.get("season", 1) == cur_season() and not st.get("test")]
     for u, p in S["pilots"].items():
         c = club_of(int(u))
         per = {st["id"]: st["pts"].get(u, 0) for st in cur_done if u in st["pts"]}
         w = l = 0
         for st in S["stages"].values():
-            if st.get("season", 1) != cur_season():
+            if st.get("season", 1) != cur_season() or st.get("test"):
                 continue
             for m in st["matches"]:
                 if m["done"] and not m["bye"]:
@@ -908,7 +1064,9 @@ def public_data():
                     l += m["l"] == int(u)
         hist = [[st["title"], st["places"][u], st["pts"].get(u, 0)] for st in cur_done if u in st["places"]]
         pilots.append({"id": p["pid"], "nick": p["nick"], "club": c["name"] if c else "", "pts": tot.get(u, 0), "stages": per,
-                       "best": min((h[1] for h in hist), default=None), "w": w, "l": l, "hist": hist})
+                       "best": min((h[1] for h in hist), default=None), "w": w, "l": l, "hist": hist, "num": p.get("num"),
+                       "car": p.get("car", ""), "photo": p.get("photo", {}).get("k"), "fan": fan_badges(int(u)),
+                       "banned": S["banned"].get(u)})
     pilots.sort(key=lambda x: (-x["pts"], x["best"] or 999, x["nick"].lower()))
     clubs = [{"id": c["id"], "name": c["name"], "leader": nick(c["leader"]), "members": [pub_pilot(u) for u in c["members"]],
               "pts": club_points(cid, tot)} for cid, c in S["clubs"].items()]
@@ -936,6 +1094,7 @@ def home(uid, chat=None, mid=None):
     text = (f"🏁 {TITLE}\n\n" + (f"Пилот: {p['nick']} · {('клуб ' + c['name']) if c else 'соло'}" if p else "Ты ещё не пилот.")
             + ("\n\nСейчас: " + "; ".join(f"{s['title']} — {STATE_RU[s['state']]}" for s in open_st) if open_st else ""))
     rows = [[b("✏️ Мой ник" if p else "🏎 Стать пилотом", "m:pilot"), b("🏁 Этапы", "m:stages")],
+            [b("🪪 Анкета: номер, машина, фото", "m:card")] if p else None,
             [b("👥 Клуб", "m:club"), b("❓ Как это работает", "m:help")], app_row(),
             [b("⚙️ Организатор", "m:org")] if is_org(uid) else None]
     if mid:
@@ -968,16 +1127,34 @@ def register(uid, sid, quiet=False):
         return "Сначала стань пилотом: /menu → «Стать пилотом»."
     if not st or st["state"] != "reg":
         return "Регистрация на этот этап закрыта."
+    if str(uid) in S["banned"]:
+        return f"Ты отстранён от чемпионата: {S['banned'][str(uid)]}"
     if uid in st["reg"]:
         return "Ты уже записан."
     if len(st["reg"]) >= (REG_MAX if st["qual"] else st["size"]):
         return "Мест больше нет."
+    if st.get("appr") and not quiet == "approved":
+        if uid in st["pend"]:
+            return "Заявка уже у организаторов."
+        st["pend"].append(uid)
+        orgs_dm(f"📝 Заявка на {st['title']}: {mention(uid)}" + (f" · клуб {club_of(uid)['name']}" if club_of(uid) else " · соло"),
+                kb([[b("✅ Принять", f"ap:{st['id']}:{uid}:ok"), b("❌ Отклонить", f"ap:{st['id']}:{uid}:no")]]))
+        return "📝 Заявка отправлена организаторам — бот напишет, когда её рассмотрят."
     st["reg"].append(uid)
     if not quiet:
         for k in ("q", "b"):
             if st["tz"].get(k):
                 send_tz(uid, st, k)
     return f"✅ Ты записан на {st['title']}."
+
+
+def card_menu(uid):
+    p = pilot(uid)
+    if not p:
+        return send(uid, "Сначала стань пилотом.")
+    send(uid, f"🪪 Анкета пилота {p['nick']}\nНомер: {('#' + str(p['num'])) if p.get('num') else '—'}\n"
+              f"Машина: {p.get('car') or '—'}\nФото: {'есть' if p.get('photo') else 'нет'}\n\nВсё это видно в приложении.",
+         kb([[b("🔢 Номер", "m:num"), b("🚗 Машина", "m:car")], [b("📸 Фото машины", "m:pphoto")]]))
 
 
 def club_menu(uid):
@@ -1025,7 +1202,7 @@ def org_menu(uid):
     rows = [[b(f"{'📝' if st['state'] == 'draft' else '🏁'} {st['title']} · {STATE_RU[st['state']]}", f"sm:{st['id']}")]
             for st in sts[-10:]]
     rows += [[b("➕ Новый этап", "st:new"), b("👥 Клубы", "oc:list")], [b("📜 Регламент", "ct:rules"), b("ℹ️ О чемпионате", "ct:about")],
-             [b("📰 Новости", "nw"), b("🔢 Очки", "pt")],
+             [b("📰 Новости", "nw"), b("🔢 Очки", "pt")], [b("⛔ Отстранения", "bn"), b("📊 Судьи", "js")],
              [b("👔 Организаторы", "og:list"), b("🏆 Сезон", "ss")] if is_owner(uid) else None, app_row()]
     send(uid, f"⚙️ Организатор · {S['season']['name']}: этапы, регламент, судьи.", kb(rows))
 
@@ -1035,7 +1212,8 @@ def draft_text(d):
             + f"\nСетка: топ-{d['size']}\nЛузер-сетка: {'да' if d['de'] else 'нет'}\nКвалификация: {'да' if d['qual'] else 'нет'}"
             + f"\nСудей: {d['jn']}\nДедлайн на пару: {str(d.get('dl', 0)) + ' мин' if d.get('dl') else 'нет'}"
             + f"\nПротесты: {'в течение ' + str(d.get('pw', 0)) + ' мин после решения' if d.get('pw') else 'нет'}"
-            + "\nЗаезд за 3-е место есть всегда.")
+            + f"\nЗаявки: {'одобряет организатор' if d.get('appr') else 'сразу в списке'}"
+            + ("\n🧪 Тестовый этап — очки не начисляются." if d.get("test") else "") + "\nЗаезд за 3-е место есть всегда.")
 
 
 def draft_kb(d):
@@ -1043,6 +1221,8 @@ def draft_kb(d):
                [b(f"Квалификация: {'да' if d['qual'] else 'нет'}", "sd:qual"), b(f"Судей: {d['jn']}", "sd:jn")],
                [b(f"Дедлайн: {str(d.get('dl', 0)) + ' мин' if d.get('dl') else 'нет'}", "sd:dl"),
                 b(f"Протесты: {str(d.get('pw', 0)) + ' мин' if d.get('pw') else 'нет'}", "sd:pw")],
+               [b(f"Заявки: {'с одобрением' if d.get('appr') else 'сразу'}", "sd:appr"),
+                b(f"Тест: {'да' if d.get('test') else 'нет'}", "sd:test")],
                [b("✏️ Название", "sd:title"), b("📅 Дата", "sd:date")],
                [b("✅ Сохранить" if d.get("edit") else "✅ Создать", "sd:ok"), b("✖️ Отмена", "sd:no")]])
 
@@ -1065,6 +1245,13 @@ def stage_menu(uid, st):
         rows.append([b("🏗 Закрыть квалификацию и построить сетку", f"sa:{sid}:qbuild")])
     if s == "run":
         rows.append([b("👨‍⚖️ Судьи", f"sj:{sid}"), b("🛠 Результат вручную", f"sa:{sid}:man")])
+    if st.get("pend"):
+        rows.append([b(f"📝 Заявки ({len(st['pend'])})", f"sa:{sid}:pend")])
+    if s in ("draft", "reg", "qual", "run"):
+        rows.append([b("🕒 Расписание", f"sa:{sid}:sched"), b("⛔ Дисквалификация", f"sa:{sid}:dsql")] if s != "draft" else
+                    [b("🕒 Расписание", f"sa:{sid}:sched")])
+    if s in ("run", "done"):
+        rows.append([b("⬇️ Итоги таблицей", f"sa:{sid}:csv")])
     rows.append([b("⬅️ Назад", "m:org")])
     send(uid, stage_desc(st) + "\n\nВ приложении сетку можно править: поставить или сбросить результат, поменять пилотов.",
          kb(rows))
@@ -1074,6 +1261,43 @@ def stage_menu(uid, st):
 def on_text(msg, uid, aw, text):
     u = user(uid)
     u.pop("aw", None)
+    if aw == "num" and pilot(uid):
+        t = text.strip().lstrip("#")
+        if not t.isdigit() or not 1 <= int(t) <= 999:
+            u["aw"] = aw
+            return send(uid, "Номер — число от 1 до 999:")
+        if any(x.get("num") == int(t) and k != str(uid) for k, x in S["pilots"].items()):
+            u["aw"] = aw
+            return send(uid, f"Номер #{t} уже занят. Выбери другой:")
+        pilot(uid)["num"] = int(t)
+        return card_menu(uid)
+    if aw == "car" and pilot(uid):
+        pilot(uid)["car"] = text.strip()[:40]
+        return card_menu(uid)
+    if aw.startswith("dsq:") and is_org(uid):
+        _, sid, x = aw.split(":")
+        st = S["stages"].get(sid)
+        if st:
+            disqualify(st, int(x), text.strip(), uid)
+            return send(uid, f"⛔ {nick(int(x))} дисквалифицирован с {st['title']}.")
+        return
+    if aw == "ban" and is_org(uid):
+        x = find_pilot_uid(text)
+        if not x:
+            u["aw"] = aw
+            return send(uid, "Не нашёл пилота. Напиши его ник в игре или @ник:")
+        u["aw"] = f"banwhy:{x}"
+        return send(uid, f"Причина отстранения {nick(x)}:")
+    if aw.startswith("banwhy:") and is_org(uid):
+        x = int(aw.split(":")[1])
+        ban(x, text.strip(), uid)
+        return send(uid, f"⛔ {nick(x)} отстранён от чемпионата.")
+    if aw.startswith("sched:") and is_org(uid):
+        st = S["stages"].get(aw.split(":")[1])
+        if st:
+            st["sched"] = text.strip()[:1500]
+            return send(uid, "🕒 Расписание сохранено — оно в приложении на странице этапа.")
+        return
     if aw.startswith("protest:"):
         _, sid, mid = aw.split(":")
         st = S["stages"].get(sid)
@@ -1192,7 +1416,9 @@ def on_text(msg, uid, aw, text):
             u["aw"], u["qf"] = aw, up
             return send(uid, "Напиши число — сколько очков в этом заезде:")
         if st and up and st["state"] == "qual":
-            mark_videos(u.pop("qfu", None) or up)
+            qfu = u.pop("qfu", None) or up
+            if not st.get("test"):
+                mark_videos(qfu)
             return qual_submit(uid, st, up, score)
         return send(uid, "Квалификация уже закрыта.")
     if aw.startswith("qfix:"):
@@ -1267,6 +1493,11 @@ def handle(msg):
         return send(uid, "Отменено.")
     aw = u.get("aw", "")
     # фото и видео, которых ждём от организатора
+    if aw == "pphoto" and msg.get("photo") and pilot(uid):
+        u.pop("aw", None)
+        pilot(uid)["photo"] = {"k": f"p{next_id('img')}", "f": msg["photo"][-1]["file_id"]}
+        send(uid, "📸 Фото машины сохранено — оно в твоём профиле в приложении.")
+        return card_menu(uid)
     if aw.startswith("ct_photo:") and msg.get("photo"):
         page = aw.split(":")[1]
         S["content"][page]["photos"].append({"k": str(next_id("img")), "f": msg["photo"][-1]["file_id"]})
@@ -1349,12 +1580,21 @@ def handle_cb(cq):
         if p[1] == "pilot":
             user(uid)["aw"] = "nick"
             return send(uid, "Напиши свой ник в игре (как в CarX):")
+        if p[1] == "card":
+            return card_menu(uid)
+        if p[1] in ("num", "car", "pphoto") and pilot(uid):
+            user(uid)["aw"] = p[1]
+            return send(uid, {"num": "Напиши свой гоночный номер (1–999):", "car": "Какая у тебя машина? (до 40 символов)",
+                              "pphoto": "Пришли фото своей машины (лучше в ливрее) одним фото."}[p[1]])
         return {"stages": stages_menu, "club": club_menu, "help": lambda x: send(x, HELP),
                 "org": lambda x: org_menu(x) if is_org(x) else None}.get(p[1], home)(uid)
     if k in ("rg", "ul"):
         st = S["stages"].get(p[1])
         if k == "rg":
             return answer(cq, register(uid, p[1]), True)
+        if st and st["state"] == "reg" and uid in st.get("pend", []):
+            st["pend"].remove(uid)
+            return answer(cq, "Заявка отозвана.", True)
         if st and st["state"] == "reg" and uid in st["reg"]:
             st["reg"].remove(uid)
             return answer(cq, "Ты выписан с этапа.", True)
@@ -1466,7 +1706,7 @@ def org_cb(cq, uid, p):
         send(x, "❌ Организатор не разрешил переход в другой клуб посреди сезона.")
         return answer(cq, "Отказано.")
     if k == "st":
-        u["draft"] = {"title": f"Этап {S['seq'].get('stage', 0) + 1}", "date": "", "size": 32, "de": False, "qual": True, "jn": 3, "dl": 0, "pw": 0}
+        u["draft"] = {"title": f"Этап {S['seq'].get('stage', 0) + 1}", "date": "", "size": 32, "de": False, "qual": True, "jn": 3, "dl": 0, "pw": 0, "test": False, "appr": False}
         answer(cq)
         return send(uid, draft_text(u["draft"]), draft_kb(u["draft"]))
     if k == "sd":
@@ -1484,6 +1724,8 @@ def org_cb(cq, uid, p):
             d["dl"] = DL_OPTS[(DL_OPTS.index(d.get("dl", 0)) + 1) % len(DL_OPTS)]
         elif act == "pw":
             d["pw"] = PW_OPTS[(PW_OPTS.index(d.get("pw", 0)) + 1) % len(PW_OPTS)]
+        elif act in ("test", "appr"):
+            d[act] = not d.get(act)
         elif act in ("title", "date"):
             u["aw"] = f"draft_{act}"
             answer(cq)
@@ -1498,7 +1740,7 @@ def org_cb(cq, uid, p):
                 st = S["stages"].get(d["edit"])
                 if not st or st["state"] not in ("draft", "reg"):
                     return answer(cq, "Этап уже начался — настройки менять нельзя.", True)
-                st.update({x: d[x] for x in ("title", "date", "size", "de", "qual", "jn", "dl", "pw")})
+                st.update({x: d[x] for x in ("title", "date", "size", "de", "qual", "jn", "dl", "pw", "test", "appr")})
                 log(uid, f"{st['title']}: изменены настройки")
             else:
                 st = new_stage(d)
@@ -1560,6 +1802,37 @@ def org_cb(cq, uid, p):
         rows = [[b(f"✖️ {nick(x)}", f"og:rm:{x}")] for x in S["orgs"]] + [[b("➕ Добавить", "og:add")]]
         return send(uid, "👔 Организаторы (владельцы — всегда):\n" + ("\n".join(f"• {mention(x)}" for x in S["orgs"]) or "Пока никого."),
                     kb(rows))
+    if k == "ap":
+        st = S["stages"].get(p[1])
+        x = int(p[2])
+        if not st or x not in st.get("pend", []):
+            return answer(cq, "Заявка уже рассмотрена.", True)
+        st["pend"].remove(x)
+        if p[3] == "ok":
+            res = register(x, st["id"], quiet="approved")
+            send(x, ("✅ Заявка принята! " if res.startswith("✅") else "") + res)
+            if res.startswith("✅"):
+                for kind in ("q", "b"):
+                    if st["tz"].get(kind):
+                        send_tz(x, st, kind)
+            return answer(cq, res, True)
+        send(x, f"❌ Заявку на {st['title']} отклонили.")
+        return answer(cq, "Отклонено", True)
+    if k == "bn":
+        answer(cq)
+        if len(p) > 1 and p[1] == "add":
+            u["aw"] = "ban"
+            return send(uid, "Кого отстранить? Ник в игре или @ник:")
+        if len(p) > 2 and p[1] == "rm":
+            if S["banned"].pop(p[2], None) is not None:
+                send(int(p[2]), f"✅ Тебя вернули в {TITLE}.")
+                log(uid, f"возвращён {nick(int(p[2]))}")
+        rows = [[b(f"✅ Вернуть {nick(int(x))}", f"bn:rm:{x}")] for x in S["banned"]]
+        return send(uid, "⛔ Отстранены от чемпионата:\n" + ("\n".join(f"• {nick(int(x))} — {w}" for x, w in S["banned"].items()) or "никого"),
+                    kb(rows + [[b("➕ Отстранить пилота", "bn:add")], [b("⬅️ Назад", "m:org")]]))
+    if k == "js":
+        answer(cq)
+        return send(uid, judge_stats_text(), kb([[b("⬅️ Назад", "m:org")]]))
     if k == "mx":
         st = S["stages"].get(p[1])
         m = mget(st, p[2]) if st else None
@@ -1639,7 +1912,7 @@ def stage_action(cq, uid, st, act, extra):
     if act == "edit":
         if s not in ("draft", "reg"):
             return answer(cq, "Этап уже начался.", True)
-        user(uid)["draft"] = {x: st.get(x, 0) for x in ("title", "date", "size", "de", "qual", "jn", "dl", "pw")} | {"edit": st["id"]}
+        user(uid)["draft"] = {x: st.get(x, 0) for x in ("title", "date", "size", "de", "qual", "jn", "dl", "pw", "test", "appr")} | {"edit": st["id"]}
         answer(cq)
         return send(uid, draft_text(user(uid)["draft"]), draft_kb(user(uid)["draft"]))
     if act == "del" and s == "draft":
@@ -1656,6 +1929,26 @@ def stage_action(cq, uid, st, act, extra):
                  kb([[b("✋ Участвую", f"rg:{st['id']}")]]))
         answer(cq, "Регистрация открыта")
         return stage_menu(uid, st)
+    if act == "pend":
+        answer(cq)
+        rows = [[b(f"✅ {nick(x)}", f"ap:{st['id']}:{x}:ok"), b("❌", f"ap:{st['id']}:{x}:no")] for x in st.get("pend", [])[:30]]
+        return send(uid, f"📝 Заявки · {st['title']}: {len(st.get('pend', []))}", kb(rows + [[b("⬅️ К этапу", f"sm:{st['id']}")]]))
+    if act == "sched":
+        user(uid)["aw"] = f"sched:{st['id']}"
+        answer(cq)
+        return send(uid, "Напиши расписание этапа одним сообщением, например:\n19:00 — квалификация\n20:00 — топ-16\n21:00 — финалы")
+    if act == "dsql":
+        answer(cq)
+        who = st["seeds"] if s == "run" else st["reg"]
+        rows = [[b(f"⛔ {nick(x)}", f"sa:{st['id']}:dsq:{x}")] for x in who if str(x) not in st.get("dsq", {})][:40]
+        return send(uid, "⛔ Кого дисквалифицировать с этапа?", kb(rows + [[b("⬅️ К этапу", f"sm:{st['id']}")]]))
+    if act == "dsq":
+        user(uid)["aw"] = f"dsq:{st['id']}:{extra[0]}"
+        answer(cq)
+        return send(uid, f"Причина дисквалификации {nick(int(extra[0]))}:")
+    if act == "csv":
+        answer(cq)
+        return send_file(uid, f"KRC_{st['title']}.csv".replace(" ", "_"), stage_csv(st), f"Итоги: {st['title']}")
     if act == "list":
         answer(cq)
         rows = [[b(f"✖️ {nick(x)}", f"sa:{st['id']}:kick:{x}") for x in st["reg"][i:i + 2]] for i in range(0, len(st["reg"]), 2)]
@@ -1733,7 +2026,10 @@ def app_api(req):
     uid = u["id"]
     if req.get("act") == "me":
         p = pilot(uid)
-        return {"ok": True, "org": is_org(uid), "pid": p["pid"] if p else None}
+        mine = {sid: st["fans"][str(uid)] for sid, st in S["stages"].items() if str(uid) in st.get("fans", {})}
+        return {"ok": True, "org": is_org(uid), "pid": p["pid"] if p else None, "fans": mine}
+    if req.get("act") == "fan":
+        return fan_vote(uid, req.get("sid"), req.get("mid"))
     if not is_org(uid):
         return {"ok": False, "error": "Править сетку могут только организаторы"}
     st = S["stages"].get(str(req.get("sid")))
@@ -1798,7 +2094,8 @@ _img = {}
 def image_bytes(key):
     if key in _img:
         return _img[key]
-    f = next((ph["f"] for c in S["content"].values() for ph in c.get("photos", []) if ph["k"] == key), None)
+    f = next((ph["f"] for c in S["content"].values() for ph in c.get("photos", []) if ph["k"] == key), None) or \
+        next((p["photo"]["f"] for p in S["pilots"].values() if p.get("photo", {}).get("k") == key), None)
     if not f:
         return None
     path = api("getFile", {"file_id": f}).get("result", {}).get("file_path")
