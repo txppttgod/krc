@@ -49,6 +49,23 @@ h3{font-family:var(--race);font-weight:400;font-size:17px;margin:18px 0 8px}
 .pills{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}.pills span{font-size:12px;padding:4px 9px;border-radius:20px;background:var(--card2);color:var(--muted)}
 .regsearch{width:100%;background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:12px;padding:11px 12px;font-size:15px;margin:4px 0 6px}
 mark{background:#5a2216;color:#fff;border-radius:3px;padding:0 2px}
+.split{height:8px;border-radius:6px;background:#3a3a46;overflow:hidden;margin-top:10px}
+.split i{display:block;height:100%;background:var(--accent)}
+.splitl{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--muted);margin-top:4px}
+.pickrow{display:flex;gap:8px}
+.pickrow button{flex:1;min-width:0;background:var(--card2);color:var(--text);border:1px solid var(--line);border-radius:12px;padding:11px 8px;
+  font-size:14px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pickrow button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.pcard{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:10px}
+.pcard .t{display:flex;justify-content:space-between;gap:8px;font-size:13px;color:var(--muted);margin-bottom:8px}
+.calc{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.calc label{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:4px;min-width:0}
+.calc input{width:100%;background:var(--card2);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px 8px;font-size:15px}
+.cres{margin-top:10px;padding:10px 12px;border-radius:12px;background:var(--card2);font-size:14px}
+.cres.ok{background:#12301f;color:#8ee6b1}.cres.bad{background:var(--accent-soft);color:#ffb1a3}
+.h2h .row{cursor:pointer}
+.trend{width:100%;height:auto;display:block;margin-top:6px}
+.cardimg{width:100%;border-radius:12px;display:block;margin:10px 0}
 .hero .big{font-family:var(--race);font-size:26px;line-height:1.1}
 .badge{display:inline-block;font-size:11px;padding:3px 8px;border-radius:20px;background:var(--card2);color:var(--muted);vertical-align:middle}
 .badge.reg{background:#14321f;color:var(--ok)}.badge.run,.badge.qual{background:var(--accent-soft);color:#ffb3a3}.badge.done{background:#2b2512;color:var(--gold)}
@@ -259,6 +276,13 @@ function meCard() {
   }
   if (ME.judge) h += task('⚖️', ME.jq ? `Ждут твоего решения: ${ME.jq}` : 'Ты судья этапа', ME.jq ? 'пришлю видео ещё раз' : 'новых заездов нет', 'judge', ME.jq > 0);
   if (ME.org) h += task('⚙️', 'Панель организатора', 'этапы, судьи, пары сейчас', 'org', false);
+  const run = D.stages.find(x => x.state === 'run');
+  const openPicks = run ? run.matches.filter(m => m.pick_open && !(ME.pid && m.a && m.b && (m.a.id === ME.pid || m.b.id === ME.pid))) : [];
+  if (openPicks.length) {
+    const left = openPicks.filter(m => !((ME.picks || {})[run.id] || {})[m.id]).length;
+    h += `<a class="task ${left ? 'hot' : ''}" href="#" onclick="openStage('${run.id}');setTab('picks');return false"><span class="ic">🔮</span>
+      <span class="tx">Прогнозы: ${left ? 'ждут тебя ' + left : 'все сделаны'}<small>угадай победителей пар · угадано ${(ME.pstat || [0])[0]} из ${(ME.pstat || [0, 0])[1]}</small></span><span class="go">›</span></a>`;
+  }
   return `<div class="me">${h}</div>`;
 }
 function task(ic, title, sub, arg, hot) {
@@ -300,6 +324,7 @@ function renderHome() {
   } else h += `<div class="card"><div class="note">Этапов пока нет — следи за новостями.</div></div>`;
   if (D.pilots.some(p => p.pts)) h += `<h3>Личный зачёт</h3><div class="card">${D.pilots.slice(0, 5).map((p, i) => pilotLine(p, i, p.pts, p.club)).join('')}
     <a class="btn ghost" href="#" onclick="show('pilots');return false">Вся таблица</a></div>`;
+  if ((D.pickers || []).length) h += `<h3>🔮 Прогнозисты сезона</h3><div class="card">${D.pickers.slice(0, 5).map((r, i) => pilotLine({ nick: r.name }, i, r.ok + '/' + r.n, '')).join('')}</div>`;
   if (D.clubs.some(c => c.pts)) h += `<h3>Клубный зачёт</h3><div class="card">${D.clubs.slice(0, 5).map((c, i) => pilotLine({ nick: c.name }, i, c.pts, c.members.length + ' пил.')).join('')}</div>`;
   h += link('🏎 Открыть бота: стать пилотом, клуб, заезды', 'menu', 'btn ghost');
   document.getElementById('home').innerHTML = h;
@@ -323,7 +348,10 @@ function renderStage() {
   const st = D.stages.find(s => s.id === stageId);
   const el = document.getElementById('stage');
   if (!st) { el.innerHTML = '<div class="empty">Этап не найден</div>'; return; }
-  const tabs = [['info', 'Об этапе'], ['bracket', 'Сетка'], st.qual ? ['qual', 'Квалификация'] : null, ['reg', 'Участники'], st.state === 'done' ? ['res', 'Итоги'] : null].filter(Boolean);
+  const anyPicks = st.matches.some(m => (m.picks || [0, 0])[0] + (m.picks || [0, 0])[1]);
+  const tabs = [['info', 'Об этапе'], ['bracket', 'Сетка'], st.qual ? ['qual', 'Квалификация'] : null, ['reg', 'Участники'],
+    st.state === 'run' || anyPicks ? ['picks', '🔮 Прогнозы'] : null, st.state === 'done' ? ['res', 'Итоги'] : null].filter(Boolean);
+  if (!tabs.some(t => t[0] === stageTab)) stageTab = tabs[0][0];
   let h = `<a class="back" href="#" onclick="show('stages');return false">← Этапы</a><h2>${esc(st.title)} ${badge(st)}</h2>
     <div class="chips">${tabs.map(([k, t]) => `<span class="chip ${stageTab === k ? 'on' : ''}" onclick="setTab('${k}')">${t}</span>`).join('')}</div>`;
   if (stageTab === 'info') {
@@ -355,12 +383,100 @@ function renderStage() {
   } else if (stageTab === 'reg') {
     h += st.reg.length ? `<div class="card">${st.reg.map((p, i) => `<div class="row"><span class="pl">${i + 1}</span><div class="nm">${esc(pn(p))}<small>${esc(p.club || 'соло')}</small></div></div>`).join('')}</div>`
       : '<div class="empty">Пока никто не записался.</div>';
+  } else if (stageTab === 'picks') {
+    const open = st.matches.filter(m => m.pick_open);
+    const closed = st.matches.filter(m => !m.bye && m.a && m.b && !m.pick_open && (m.picks[0] + m.picks[1]));
+    h += `<p class="note">Угадывай победителей пар. Прогноз можно менять, пока заезд не ушёл судьям. Участники пары и судьи этапа прогнозы не делают.</p>`;
+    if (TG && (ME.pstat || [0, 0])[1]) h += `<div class="card">Твои прогнозы в сезоне: угадано <b>${ME.pstat[0]}</b> из ${ME.pstat[1]}</div>`;
+    h += open.length ? `<h3>Открыты для прогноза</h3>` + open.map(m => `<div class="pcard"><div class="t"><span>${esc(m.name)}</span><span>${m.until ? '<span data-until="' + m.until + '"></span>' : 'едут'}</span></div>${pickInner(st, m)}</div>`).join('')
+      : `<div class="empty">Сейчас нет пар, открытых для прогноза.</div>`;
+    if (closed.length) h += `<h3>Закрыты</h3>` + closed.slice().reverse().map(m => `<div class="pcard"><div class="t"><span>${esc(m.name)}</span><span>${m.done ? 'решено' : 'у судей'}</span></div>${pickInner(st, m)}</div>`).join('');
+    h += pickersTable();
   } else if (stageTab === 'res') {
+    h += `<button class="btn" onclick="resultCard('${st.id}')">🖼 Картинка итогов${TG ? ' — прислать в бот' : ''}</button>`;
     h += `<div class="card">${st.places.map(([p, place, pts], i) => `<div class="row"><span class="pl ${place <= 3 ? 'p' + place : ''}">${place}</span>
       <div class="nm">${esc(pn(p))}<small>${esc(p.club || 'соло')}${st.dsq.some(d => d[0] === p.nick) ? ' · ⛔ DSQ' : ''}</small></div><span class="pt">+${pts}</span></div>`).join('')}</div>`;
     h += fanBlock(st);
   }
   el.innerHTML = h;
+  tickTimers();
+}
+
+// ---------- Прогнозы зрителей ----------
+function pickInner(st, m) {
+  const [na, nb] = m.picks || [0, 0], tot = na + nb;
+  const mine = ((ME.picks || {})[st.id] || {})[m.id];
+  const isMe = ME.pid && (m.a.id === ME.pid || m.b.id === ME.pid);
+  let h = '';
+  if (m.pick_open && TG && !isMe) {
+    h += `<div class="pickrow"><button class="${mine === 'a' ? 'on' : ''}" onclick="pickSide('${st.id}','${m.id}','a')">${mine === 'a' ? '✓ ' : ''}${esc(pn(m.a))}</button>
+      <button class="${mine === 'b' ? 'on' : ''}" onclick="pickSide('${st.id}','${m.id}','b')">${mine === 'b' ? '✓ ' : ''}${esc(pn(m.b))}</button></div>`;
+  } else {
+    const wn = m.done && m.w ? (m.w === 'a' ? m.a : m.b) : null;
+    h += `<div><b>${esc(pn(m.a))}</b> <span class="note">vs</span> <b>${esc(pn(m.b))}</b>${wn ? ` <span class="note">· победил ${esc(wn.nick)}</span>` : ''}</div>`;
+    h += `<div class="note" style="margin-top:4px">${m.pick_open ? (isMe ? 'Это твоя пара — прогноз делать нельзя.' : 'Прогнозы делают в приложении внутри Телеграма.')
+      : m.done ? (mine ? (mine === m.w ? '✅ Твой прогноз сбылся' : '❌ Твой прогноз не сбылся') : 'Прогнозы закрыты')
+      : m.judging ? 'Заезд у судей — прогнозы закрыты' + (mine ? ' · твой прогноз: ' + esc((mine === 'a' ? m.a : m.b).nick) : '')
+      : 'Прогнозы откроются, когда пара начнётся'}</div>`;
+  }
+  if (tot) h += `<div class="split"><i style="width:${Math.round(na * 100 / tot)}%"></i></div>
+    <div class="splitl"><span>${Math.round(na * 100 / tot)}% · ${esc(m.a.nick)}</span><span>${tot} прогн.</span><span>${esc(m.b.nick)} · ${Math.round(nb * 100 / tot)}%</span></div>`;
+  return h;
+}
+function pickersTable() {
+  const rows = D.pickers || [];
+  if (!rows.length) return '';
+  return `<h3>🏆 Прогнозисты сезона</h3><div class="card">${rows.slice(0, 10).map((r, i) => `<div class="row"><span class="pl ${i < 3 ? 'p' + (i + 1) : ''}">${i + 1}</span>
+    <div class="nm">${esc(r.name)}<small>угадано ${r.ok} из ${r.n}</small></div><span class="pt">${r.n ? Math.round(r.ok * 100 / r.n) : 0}%</span></div>`).join('')}</div>
+    <p class="note">В таблице виден ник пилота или имя из Телеграма.</p>`;
+}
+let sheetMatch = null;
+async function pickSide(sid, mid, side) {
+  const r = await api({ act: 'pick', sid, mid, side });
+  if (!r.ok) { alert(r.error); return; }
+  ME.picks = ME.picks || {};
+  (ME.picks[sid] = ME.picks[sid] || {})[mid] = side;
+  await load();
+  if (sheetMatch && sheetMatch[1] === mid && document.getElementById('sheet').classList.contains('open')) openMatch(sid, mid);
+}
+// Личные встречи двух пилотов (без тестовых этапов)
+function h2hList(pid) {
+  const rec = {};
+  D.stages.filter(s => !s.test).forEach(s => s.matches.forEach(m => {
+    if (!m.done || m.bye || !m.a || !m.b || !m.w) return;
+    let me, opp;
+    if (m.a.id === pid) { me = 'a'; opp = m.b; } else if (m.b.id === pid) { me = 'b'; opp = m.a; } else return;
+    const r = rec[opp.id] = rec[opp.id] || { p: opp, w: 0, l: 0 };
+    if (m.w === me) r.w++; else r.l++;
+  }));
+  return Object.values(rec).sort((x, y) => (y.w + y.l) - (x.w + x.l) || y.w - x.w);
+}
+// Место в общем зачёте после каждого этапа сезона
+function placeTrend(pid) {
+  const done = D.stages.filter(s => s.state === 'done' && !s.test && (s.season || 1) === curSeason()).sort((a, b) => a.n - b.n);
+  const tot = {}, out = [];
+  done.forEach(s => {
+    s.places.forEach(([pl, , pt]) => { if (pl) tot[pl.id] = (tot[pl.id] || 0) + pt; });
+    const order = Object.entries(tot).sort((a, b) => b[1] - a[1]);
+    const i = order.findIndex(([id]) => +id === pid);
+    out.push({ s, place: i >= 0 ? i + 1 : null, n: order.length });
+  });
+  return out;
+}
+function trendSVG(tr) {
+  const pts = tr.filter(t => t.place);
+  if (pts.length < 2) return '';
+  const Wd = 320, Hd = 130, padX = 26, padY = 22, maxP = Math.max(...pts.map(t => t.place), 3);
+  const X = i => padX + i * (Wd - padX * 2) / (tr.length - 1), Y = pl => padY + (pl - 1) * (Hd - padY * 2) / (maxP - 1);
+  let path = '', dots = '', labels = '';
+  tr.forEach((t, i) => {
+    labels += `<text x="${X(i)}" y="${Hd - 4}" fill="#8c8c98" font-size="11" text-anchor="middle">Э${t.s.n}</text>`;
+    if (!t.place) return;
+    path += (path ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(t.place).toFixed(1);
+    dots += `<circle cx="${X(i)}" cy="${Y(t.place)}" r="4.5" fill="#e8452c"/><text x="${X(i)}" y="${Y(t.place) - 9}" fill="#f2f2f4" font-size="12" text-anchor="middle">${t.place}</text>`;
+  });
+  return `<svg class="trend" viewBox="0 0 ${Wd} ${Hd}"><line x1="${padX}" x2="${Wd - padX}" y1="${padY}" y2="${padY}" stroke="#2c2c35" stroke-dasharray="3 4"/>
+    <path d="${path}" fill="none" stroke="#e8452c" stroke-width="2.5" stroke-linejoin="round"/>${dots}${labels}</svg>`;
 }
 
 // ---------- Сетка как на Challonge: колонки по раундам, линии между парами ----------
@@ -451,6 +567,7 @@ function roundsList(st) {
 // ---------- Детали пары ----------
 function openMatch(sid, mid) {
   const st = D.stages.find(s => s.id === sid), m = st.matches.find(x => x.id === mid);
+  sheetMatch = [sid, mid];
   const nm = p => p ? esc(p.nick) : '—';
   const res = { a: m.a && m.a.nick, b: m.b && m.b.nick, omt: 'OMT', reset: 'сброшено' };
   let h = `<div style="color:var(--muted);font-size:13px">${esc(st.title)} · ${esc(m.name)}</div>
@@ -464,8 +581,13 @@ function openMatch(sid, mid) {
   if (m.protest) h += `<h3>📣 Протест</h3><div class="card" style="padding:10px 14px"><div>${esc(m.protest.by)}: «${esc(m.protest.why)}»</div>
     <div class="note">${m.protest.res === 'keep' ? 'Отклонён — решение осталось' : m.protest.res === 'omt' ? 'Принят — перезаезд' : 'На рассмотрении у судей'}</div>
     ${m.protest.votes.map(([j, v]) => `<div class="vote"><span>👨‍⚖️ ${esc(j)}</span><b>${v === 'omt' ? 'OMT' : 'оставить'}</b></div>`).join('')}</div>`;
+  if (m.a && m.b) {
+    const r = h2hList(m.a.id).find(x => x.p.id === m.b.id);
+    if (r) h += `<div class="note" style="margin-top:6px">🆚 Личные встречи: ${esc(m.a.nick)} ${r.w} — ${r.l} ${esc(m.b.nick)}</div>`;
+  }
+  if (m.a && m.b && !m.bye && (st.state === 'run' || (m.picks || [0, 0])[0] + (m.picks || [0, 0])[1])) h += `<h3>🔮 Прогноз зрителей</h3><div class="card" style="padding:12px 14px">${pickInner(st, m)}</div>`;
   m.tries.forEach((t, i) => {
-    h += `<h3>Попытка ${i + 1}: ${esc(res[t.res] || t.res)}</h3><div class="card" style="padding:10px 14px">${t.votes.map(([j, v]) => `<div class="vote"><span>👨‍⚖️ ${esc(j)}</span><b>${esc(res[v] || v)}</b></div>`).join('') || '<span class="note">голосов нет</span>'}</div>`;
+    h += `<h3>Попытка ${i + 1}: ${esc(res[t.res] || t.res)}</h3><div class="card" style="padding:10px 14px">${t.votes.map(([j, v, why]) => `<div class="vote"><span>👨‍⚖️ ${esc(j)}</span><b>${esc(res[v] || v)}</b></div>${why ? `<div class="note" style="margin:-2px 0 6px 24px">— ${esc(why)}</div>` : ''}`).join('') || '<span class="note">голосов нет</span>'}</div>`;
   });
   if (m.tries.length) h += link('🎥 Смотреть видео заездов в Телеграме', `w_${st.id}_${m.id}`, 'btn ghost');
   if (ME.org && st.state !== 'draft') {
@@ -485,7 +607,7 @@ function openMatch(sid, mid) {
   document.getElementById('sheetBody').innerHTML = h;
   document.getElementById('sheet').classList.add('open');
 }
-function closeSheet() { document.getElementById('sheet').classList.remove('open'); }
+function closeSheet() { document.getElementById('sheet').classList.remove('open'); sheetMatch = null; }
 async function act(a, sid, mid, side) {
   if (a === 'reset' && !confirm('Сбросить результат этой пары?')) return;
   const r = await api({ act: a, sid, mid, side });
@@ -546,8 +668,12 @@ function openPilot(id) {
     ${p.banned ? `<div class="card" style="margin-top:10px;border-color:var(--accent)">⛔ Отстранён: ${esc(p.banned)}</div>` : ''}
     ${p.photo ? `<img class="carimg" loading="lazy" alt="" src="${BOT_URL}/img/${encodeURIComponent(p.photo)}">` : ''}
     ${(p.fan || []).length ? `<div style="margin-top:8px">${p.fan.map(t => `<span class="badge done">🎖 Пара этапа · ${esc(t)}</span>`).join(' ')}</div>` : ''}
+    ${p.spec ? `<div class="cres ${p.carok === 'ok' ? 'ok' : p.carok === 'bad' ? 'bad' : ''}">📏 ${esc(p.spec)}<br>${p.carok === 'ok' ? '✅ По колёсному регламенту' : p.carok === 'bad' ? '❌ Не по регламенту: ' + esc(p.carwhy) : '❓ ' + esc(p.carwhy)}</div>` : ''}
     <div class="stat3"><div><span class="note">Место</span><b>${p.pts ? place : '—'}</b></div><div><span class="note">Очки</span><b>${p.pts}</b></div>
       <div><span class="note">Пары</span><b>${p.w}–${p.l}</b></div></div>
+    ${(() => { const tr = placeTrend(p.id), svg = trendSVG(tr); return svg ? `<h3>📈 Место в сезоне после каждого этапа</h3><div class="card">${svg}</div>` : ''; })()}
+    ${(() => { const hh = h2hList(p.id); return hh.length ? `<h3>🆚 Личные встречи · за всё время</h3><div class="card h2h">${hh.slice(0, 8).map(r => `<div class="row" onclick="openPilot(${r.p.id})">
+      <div class="nm">vs ${esc(pn(r.p))}<small>${esc(r.p.club || 'соло')}</small></div><span class="pt" style="color:${r.w > r.l ? 'var(--ok)' : r.w < r.l ? 'var(--accent)' : 'var(--muted)'}">${r.w}–${r.l}</span></div>`).join('')}</div>` : ''; })()}
     ${p.hist.length ? `<div class="card">${p.hist.map(h => `<div class="row"><span class="pl ${h[1] <= 3 ? 'p' + h[1] : ''}">${h[1]}</span><div class="nm">${esc(h[0])}</div><span class="pt">+${h[2]}</span></div>`).join('')}</div>`
       : '<p class="note">В этом сезоне ещё нет завершённых этапов.</p>'}
     <button class="btn ghost" onclick="closeSheet()">Закрыть</button>`;
@@ -561,6 +687,92 @@ function renderClubs() {
     <div style="margin-top:6px">${c.members.map(p => esc(p.nick)).join(' · ') || '<span class="note">состав пуст</span>'}</div></div>`).join('')
     + `<p class="note">В клубный зачёт идут очки всех пилотов клуба. Ушёл пилот — его очки уходят вместе с ним.</p>`
     : '<div class="empty">Клубов пока нет. Капитан создаёт клуб в боте.</div>') + link('👥 Клуб в боте', 'club', 'btn ghost');
+}
+// ---------- Картинка итогов этапа (для канала) ----------
+function fitFont(x, text, maxW, size, fam) {
+  let f = size;
+  do { x.font = `${f}px ${fam}`; if (x.measureText(text).width <= maxW) break; f -= 2; } while (f > 14);
+  return x.font;
+}
+async function drawResults(st) {
+  const Wc = 1080, Hc = 1350, c = document.createElement('canvas');
+  c.width = Wc; c.height = Hc;
+  const x = c.getContext('2d'), RACE = "'Russo One', sans-serif", BASE = 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+  try { await document.fonts.load(`40px 'Russo One'`, 'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдеёжзийклмнопрстуфхцчшщъыьэюя0123456789#+'); } catch (e) {}
+  const T = (t, X, Y, font, color, align = 'left') => { x.font = font; x.fillStyle = color; x.textAlign = align; x.textBaseline = 'middle'; x.fillText(t, X, Y); };
+  const RR = (X, Y, w, h, r, fill) => { x.beginPath(); if (x.roundRect) x.roundRect(X, Y, w, h, r); else x.rect(X, Y, w, h); x.fillStyle = fill; x.fill(); };
+  x.fillStyle = '#0d0d10'; x.fillRect(0, 0, Wc, Hc);
+  const g = x.createRadialGradient(Wc / 2, 520, 40, Wc / 2, 520, 760);
+  g.addColorStop(0, 'rgba(232,69,44,.20)'); g.addColorStop(1, 'rgba(232,69,44,0)'); x.fillStyle = g; x.fillRect(0, 0, Wc, Hc);
+  for (let i = 0; i < 5; i++) {
+    x.globalAlpha = 1 - i * 0.17; x.fillStyle = i % 2 ? 'rgba(232,69,44,.4)' : '#e8452c';
+    const o = Wc - 250 + i * 34; x.beginPath(); x.moveTo(o, 0); x.lineTo(o + 18, 0); x.lineTo(o - 112, 130); x.lineTo(o - 130, 130); x.fill();
+  }
+  x.globalAlpha = 1;
+  RR(60, 56, 84, 84, 20, '#e8452c'); T('KRC', 102, 100, `30px ${RACE}`, '#fff', 'center');
+  T('KHINKALI RACING', 166, 84, `30px ${RACE}`, '#f2f2f4'); T('CHAMPIONSHIP', 166, 120, `30px ${RACE}`, '#8c8c98');
+  T('ИТОГИ ЭТАПА', Wc / 2, 236, `84px ${RACE}`, '#f2f2f4', 'center');
+  const sub = st.title + (st.date ? ' · ' + st.date : '') + (st.test ? ' · тестовый' : '');
+  x.font = fitFont(x, sub, 900, 40, RACE); T(sub, Wc / 2, 306, x.font, '#e8452c', 'center');
+  const pl = st.places.slice().sort((a, b) => a[1] - b[1]);
+  // подиум: 2 — 1 — 3
+  const pod = [[pl[1], Wc / 2 - 320, 230, '#2a2a33'], [pl[0], Wc / 2, 300, '#e8452c'], [pl[2], Wc / 2 + 320, 190, '#23232b']];
+  const base = 820;
+  pod.forEach(([e, cx, h, col]) => {
+    if (!e) return;
+    const [p, place, pts] = e;
+    RR(cx - 140, base - h, 280, h, 18, col);
+    T(String(place), cx, base - h + 74, `110px ${RACE}`, place === 1 ? '#fff' : '#f2f2f4', 'center');
+    T('+' + pts, cx, base - 40, `34px ${RACE}`, place === 1 ? '#fff' : '#f5b942', 'center');
+    const name = (p.num ? '#' + p.num + ' ' : '') + p.nick;
+    x.font = fitFont(x, name, 290, 40, RACE); T(name, cx, base - h - 74, x.font, '#f2f2f4', 'center');
+    const club = p.club || 'соло';
+    x.font = fitFont(x, club, 280, 26, BASE); T(club, cx, base - h - 34, x.font, '#8c8c98', 'center');
+  });
+  // места 4–8
+  let y = 880;
+  pl.slice(3, 8).forEach(([p, place, pts]) => {
+    RR(90, y, Wc - 180, 56, 14, '#17171c');
+    T(String(place), 130, y + 29, `28px ${RACE}`, '#8c8c98', 'center');
+    const name = (p.num ? '#' + p.num + ' ' : '') + p.nick;
+    x.font = fitFont(x, name, 520, 28, RACE); T(name, 175, y + 29, x.font, '#f2f2f4');
+    x.font = fitFont(x, p.club || 'соло', 200, 22, BASE); T(p.club || 'соло', 760, y + 29, x.font, '#8c8c98');
+    T('+' + pts, Wc - 120, y + 29, `28px ${RACE}`, '#f5b942', 'right');
+    y += 64;
+  });
+  // пара этапа и лучший клуб
+  const chips = [];
+  if (st.fan_best) { const m = st.matches.find(q => q.id === st.fan_best); if (m && m.a && m.b) chips.push(['ПАРА ЭТАПА', m.a.nick + ' vs ' + m.b.nick]); }
+  const byClub = {};
+  pl.forEach(([p, , pts]) => { if (p.club) byClub[p.club] = (byClub[p.club] || 0) + pts; });
+  const bestClub = Object.entries(byClub).sort((a, b) => b[1] - a[1])[0];
+  if (bestClub && bestClub[1] > 0) chips.push(['ЛУЧШИЙ КЛУБ ЭТАПА', bestClub[0] + ' · +' + bestClub[1]]);
+  const cy = Math.max(y + 16, 1200), cw = chips.length === 2 ? (Wc - 200) / 2 : Wc - 180;
+  chips.forEach(([k, v], i) => {
+    const cx = 90 + i * (cw + 20);
+    RR(cx, cy, cw, 84, 16, '#202027');
+    T(k, cx + 22, cy + 26, `20px ${RACE}`, '#e8452c');
+    x.font = fitFont(x, v, cw - 44, 28, RACE); T(v, cx + 22, cy + 58, x.font, '#f2f2f4');
+  });
+  T((D.bot ? '@' + D.bot + ' · ' : '') + 'чемпионат по дрифту в CarX Drift Racing 3', Wc / 2, Hc - 26, `22px ${BASE}`, '#8c8c98', 'center');
+  return c;
+}
+async function resultCard(sid) {
+  const st = D.stages.find(s => s.id === sid);
+  const sheet = document.getElementById('sheetBody');
+  sheet.innerHTML = '<div class="note">Рисую картинку…</div>';
+  document.getElementById('sheet').classList.add('open');
+  const c = await drawResults(st);
+  const url = c.toDataURL('image/jpeg', 0.9);
+  sheet.innerHTML = `<h3 style="margin-top:0">🖼 Итоги · ${esc(st.title)}</h3><img class="cardimg" alt="Итоги этапа" src="${url}">
+    <div class="note" id="cardst">${TG ? 'Отправляю в чат с ботом…' : 'Сохрани картинку и опубликуй в канале.'}</div>
+    ${TG ? '' : `<a class="btn" href="${url}" download="krc-itogi-${st.n}.jpg">⬇️ Скачать</a>`}
+    <button class="btn ghost" onclick="closeSheet()">Закрыть</button>`;
+  if (!TG) return;
+  try {
+    const r = await api({ act: 'card', sid, img: url });
+    document.getElementById('cardst').textContent = r.ok ? '✅ Картинка в чате с ботом — перешли её в канал.' : '❌ ' + (r.error || 'не получилось');
+  } catch (e) { document.getElementById('cardst').textContent = '❌ Нет связи с ботом — попробуй через минуту.'; }
 }
 // Бот на бесплатном Render просыпается до минуты — картинку пробуем загрузить ещё несколько раз
 function imgRetry(img) {
@@ -602,6 +814,31 @@ function markText(root, q) {
     rest.replaceWith(m);
   });
 }
+const TIRE = /(\d{3})\s*\/\s*(\d{2})\s*[RrРр]?\s*(\d{2})/;
+function carCheck(w, f, r) {
+  const rules = D.car_rules || { main: [], alt: [] }, axles = [f, r];
+  const fits = row => axles.every(t => t[0] <= row[2] && t[2] <= row[3] && t[1] <= row[4]);
+  const main = rules.main.filter(x => x[0] <= w && w <= x[1]), alt = (rules.alt || []).filter(x => x[0] <= w && w <= x[1]);
+  if (!main.length && !alt.length) return ['', `Вес ${w} кг вне таблицы регламента — уточни у организаторов.`];
+  if (main.some(fits)) return ['ok', '✅ Подходит по основному регламенту.'];
+  if (alt.some(fits)) return ['ok', '✅ Подходит по альтернативному варианту.'];
+  const x = (main[0] || alt[0]), bad = [];
+  (f.join() === r.join() ? [['колёса', f]] : [['перед', f], ['зад', r]]).forEach(([n, t]) => {
+    if (t[0] > x[2]) bad.push(`${n}: ширина ${t[0]} > ${x[2]}`);
+    if (t[2] > x[3]) bad.push(`${n}: диаметр R${t[2]} > R${x[3]}`);
+    if (t[1] > x[4]) bad.push(`${n}: профиль ${t[1]} > ${x[4]}`);
+  });
+  return ['bad', '❌ Не по регламенту: ' + bad.join('; ') + `. Максимум для ${x[0]}–${x[1]} кг: ${x[2]}/${x[4]} R${x[3]}.`];
+}
+function carCalc() {
+  const w = parseInt(document.getElementById('cw').value, 10);
+  const fm = document.getElementById('cf').value.match(TIRE), rm = document.getElementById('cr').value.match(TIRE);
+  const el = document.getElementById('cres');
+  if (!w || !fm) { el.className = 'cres'; el.textContent = 'Введи вес и колёса, например 1250 и 275/35 R18 — сверю с таблицей.'; return; }
+  const f = [+fm[1], +fm[2], +fm[3]], r = rm ? [+rm[1], +rm[2], +rm[3]] : f;
+  const [cls, txt] = carCheck(w, f, r);
+  el.className = 'cres ' + cls; el.textContent = txt;
+}
 function renderRules() {
   const r = D.content.rules || {};
   // Колёсный регламент: свежая картинка из бота, иначе — из PDF регламента
@@ -612,6 +849,13 @@ function renderRules() {
     <h3>🚗 Регламент авто</h3>
     <a class="regcar" href="${car}" target="_blank" rel="noopener"><img alt="Колёсный регламент: ширина, диаметр и профиль шин по весу машины" src="${car}" onerror="imgRetry(this)"></a>
     <p class="note">Максимальные параметры колёс обеих осей по весу машины. Меньше — можно, больше — нельзя. Нажми на картинку, чтобы открыть крупно.</p>
+    <h3>🧮 Проверь свою машину</h3>
+    <div class="card"><div class="calc">
+      <label>Вес, кг<input id="cw" inputmode="numeric" placeholder="1250" oninput="carCalc()"></label>
+      <label>Перед<input id="cf" placeholder="275/35 R18" oninput="carCalc()"></label>
+      <label>Зад<input id="cr" placeholder="как перед" oninput="carCalc()"></label></div>
+      <div id="cres" class="cres">Введи вес и колёса — сверю с таблицей.</div>
+      ${TG ? '<div class="note" style="margin-top:8px">Чтобы проверка была видна в профиле и организаторам — укажи вес и колёса в боте: анкета → «📏 Вес и колёса».</div>' : ''}</div>
     ${r.text || (r.photos || []).length ? `<div class="card">${r.text ? `<div class="text">${esc(r.text)}</div>` : ''}
     <div class="photos">${(r.photos || []).map(k => `<img loading="lazy" alt="" src="${BOT_URL}/img/${encodeURIComponent(k)}">`).join('')}</div></div>` : ''}
     ${reg.length ? `<h3>📖 ${REGLAMENT_TITLE}</h3>

@@ -2,8 +2,10 @@
 # Всё управление — в личке бота кнопками: пилоты, клубы, этапы, судьи, ТЗ, регламент.
 # Публичная часть — мини-приложение (index.html): сетки, таблицы, клубы, регламент. Данные оно берёт с /data.
 import os
+import re
 import sys
 import json
+import base64
 import time
 import hmac
 import hashlib
@@ -37,6 +39,14 @@ PW_OPTS = [0, 10, 30]        # окно для протеста после ре�
 FAN_HOURS = 48               # сколько часов после этапа зрители голосуют за пару этапа
 # Очки за итоговое место на этапе (по образцу Formula Drift): [до какого места, очки]
 POINTS = [[1, 100], [2, 88], [3, 76], [4, 64], [8, 48], [16, 32], [32, 16], [64, 8]]
+# Колёсный регламент (из PDF): [вес от, вес до, макс. ширина мм, макс. диаметр дюймов, макс. профиль %]
+CAR_RULES = {"main": [[1000, 1099, 245, 18, 35], [1100, 1199, 265, 18, 35], [1200, 1299, 275, 18, 35],
+                      [1300, 1399, 295, 18, 35], [1400, 1499, 295, 19, 35]],
+             "alt": [[1300, 1399, 285, 19, 35]]}
+# Причины решения судьи (по желанию) — видны пилотам и зрителям
+REASONS = {"lead": "лидер сильнее", "chase": "преследование сильнее", "line": "траектория",
+           "angle": "угол и стиль", "zero": "крит. ошибка соперника", "contact": "контакт по вине соперника",
+           "even": "заезды равны"}
 
 # ---------- База (Supabase, та же таблица bot_state, что у клубного бота, своя строка) ----------
 SB_HEADERS = {"apikey": SB_KEY, "Content-Type": "application/json"}
@@ -51,7 +61,8 @@ def fresh():
             "content": {"rules": {"text": "", "photos": []}, "about": {"text": "", "photos": []},
                         "car": {"text": "", "photos": []}},
             "seq": {"pid": 0, "club": 0, "stage": 0, "img": 0},
-            "news": [], "season": {"n": 1, "name": "Сезон 1"}, "seasons": [], "vids": [], "banned": {}}
+            "news": [], "season": {"n": 1, "name": "Сезон 1"}, "seasons": [], "vids": [], "banned": {},
+            "car_rules": json.loads(json.dumps(CAR_RULES))}
 
 
 S = fresh()
@@ -89,6 +100,8 @@ def load_state():
         base.update(d)
         S = base
         S["content"].setdefault("car", {"text": "", "photos": []})
+        if not S.get("car_rules"):
+            S["car_rules"] = json.loads(json.dumps(CAR_RULES))
 
 
 def save_state():
@@ -206,6 +219,135 @@ def contact(uid):
 def dm_button(uid):
     un = S["users"].get(str(uid), {}).get("un")
     return {"text": f"✉️ Написать {nick(uid)}", "url": f"https://t.me/{un}"} if un else None
+
+
+TIRE_RE = re.compile(r"(\d{3})\s*/\s*(\d{2})\s*[RrРр]?\s*(\d{2})")
+
+
+def parse_spec(text):
+    # «1250 275/35 R18» или «1250 265/35R18 275/35R18» (перед, зад)
+    tires = [(int(w), int(pr), int(d)) for w, pr, d in TIRE_RE.findall(text)]
+    rest = TIRE_RE.sub(" ", text)
+    wm = re.search(r"\b(\d{3,4})\b", rest)
+    if not wm or not tires or len(tires) > 2:
+        return None
+    w = int(wm.group(1))
+    if not 500 <= w <= 3000:
+        return None
+    return {"w": w, "f": list(tires[0]), "r": list(tires[-1])}
+
+
+def tire_text(t):
+    return f"{t[0]}/{t[1]} R{t[2]}"
+
+
+def spec_text(sp):
+    if not sp:
+        return ""
+    return f"{sp['w']} кг · " + (f"колёса {tire_text(sp['f'])}" if sp["f"] == sp["r"] else
+                                 f"перед {tire_text(sp['f'])} · зад {tire_text(sp['r'])}")
+
+
+def car_check(sp):
+    # сверяем машину с колёсным регламентом: ширина, диаметр и профиль не больше максимума для веса
+    if not sp:
+        return None, "вес и колёса не указаны"
+    rules = S.get("car_rules") or CAR_RULES
+    w, axles = sp["w"], [sp["f"], sp["r"]]
+
+    def fits(row):
+        return all(t[0] <= row[2] and t[2] <= row[3] and t[1] <= row[4] for t in axles)
+    main = [r for r in rules.get("main", []) if r[0] <= w <= r[1]]
+    alt = [r for r in rules.get("alt", []) if r[0] <= w <= r[1]]
+    if not main and not alt:
+        return "unknown", f"вес {w} кг вне таблицы регламента"
+    if any(fits(r) for r in main):
+        return "ok", "по основному регламенту"
+    if any(fits(r) for r in alt):
+        return "ok", "по альтернативному варианту"
+    r = (main or alt)[0]
+    bad = []
+    for name, t in ((("колёса", sp["f"]),) if sp["f"] == sp["r"] else (("перед", sp["f"]), ("зад", sp["r"]))):
+        if t[0] > r[2]:
+            bad.append(f"{name}: ширина {t[0]} > {r[2]}")
+        if t[2] > r[3]:
+            bad.append(f"{name}: диаметр R{t[2]} > R{r[3]}")
+        if t[1] > r[4]:
+            bad.append(f"{name}: профиль {t[1]} > {r[4]}")
+    return "bad", "; ".join(bad)
+
+
+def car_mark(uid):
+    st_, _ = car_check((pilot(uid) or {}).get("spec"))
+    return {"ok": "✅", "bad": "❌", "unknown": "❓"}.get(st_, "▫️")
+
+
+def rules_text(rules):
+    lines = [f"{r[0]}-{r[1]} {r[2]} R{r[3]} {r[4]}" for r in rules.get("main", [])]
+    lines += [f"альт {r[0]}-{r[1]} {r[2]} R{r[3]} {r[4]}" for r in rules.get("alt", [])]
+    return "\n".join(lines)
+
+
+def parse_rules(text):
+    out = {"main": [], "alt": []}
+    for line in text.splitlines():
+        m = re.match(r"^\s*(альт|alt)?\s*(\d{3,4})\s*[-–—]\s*(\d{3,4})\s+(\d{3})\s+[RrРр]?\s*(\d{2})\s+(\d{2})\s*$",
+                     line, re.I)
+        if not line.strip():
+            continue
+        if not m:
+            return None
+        row = [int(m.group(i)) for i in range(2, 7)]
+        if row[0] > row[1]:
+            return None
+        out["alt" if m.group(1) else "main"].append(row)
+    return out if out["main"] else None
+
+
+# ---------- прогнозы зрителей ----------
+def pick_open(st, m):
+    return (st["state"] == "run" and m["open"] and not m["done"] and not m["bye"] and m["pa"] and m["pb"]
+            and not try_open(m))
+
+
+def pick(uid, sid, mid, side):
+    st = S["stages"].get(str(sid))
+    m = mget(st, mid) if st else None
+    if not m or side not in ("a", "b"):
+        return {"ok": False, "error": "Пары нет"}
+    if not pick_open(st, m):
+        return {"ok": False, "error": "Прогнозы на эту пару закрыты: заезд уже у судей или решён"}
+    if uid in (m["pa"], m["pb"]):
+        return {"ok": False, "error": "На свою пару прогноз делать нельзя"}
+    if uid in st["judges"]:
+        return {"ok": False, "error": "Судьи этапа прогнозы не делают"}
+    st.setdefault("picks", {}).setdefault(m["id"], {})[str(uid)] = side
+    return {"ok": True}
+
+
+def pick_name(uid):
+    p = pilot(uid)
+    return p["nick"] if p else (S["users"].get(str(uid), {}).get("name") or "Зритель")
+
+
+def pick_table():
+    # прогнозисты сезона: сколько пар угадали
+    stat = {}
+    for st in S["stages"].values():
+        if st.get("season", 1) != cur_season():
+            continue
+        for mid, picks in st.get("picks", {}).items():
+            m = mget(st, mid)
+            if not m or not m["done"] or m["bye"] or m["w"] is None:
+                continue
+            ws = "a" if m["w"] == m["pa"] else "b"
+            for u, sd in picks.items():
+                x = stat.setdefault(u, [0, 0])
+                x[1] += 1
+                x[0] += sd == ws
+    rows = [{"uid": int(u), "name": pick_name(int(u)), "ok": ok, "n": n} for u, (ok, n) in stat.items()]
+    rows.sort(key=lambda r: (-r["ok"], r["n"], r["name"].lower()))
+    return rows
 
 
 def club_of(uid):
@@ -487,6 +629,9 @@ def readiness(st):
     rows.append(("✅" if n >= 2 else "❌") + f" Записано пилотов: {n}" + (f" (в сетку войдут {st['size']})" if n > st["size"] and not st["qual"] else ""))
     if st.get("pend"):
         rows.append(f"⚠️ Заявок ждут решения: {len(st['pend'])}")
+    notok = [x for x in st["reg"] if car_check((pilot(x) or {}).get("spec"))[0] != "ok"]
+    if notok:
+        rows.append(f"⚠️ Машина не проверена или не по регламенту: {len(notok)} (список — «👥 Участники»)")
     return "Готовность:\n" + "\n".join(rows)
 
 
@@ -743,6 +888,23 @@ def vote_kb(st, m, ti):
     return kb([row, [b("🔁 OMT — перезаезд", f"jv:{st['id']}:{m['id']}:{ti}:omt")] if m["omt"] < OMT_MAX else None])
 
 
+def reason_kb(st, m, ti):
+    codes = list(REASONS)
+    return kb([[b(REASONS[c], f"jw:{st['id']}:{m['id']}:{ti}:{c}") for c in codes[i:i + 2]] for i in range(0, len(codes), 2)])
+
+
+def judge_reason(cq, sid, mid, ti, code):
+    j = cq["from"]["id"]
+    st = S["stages"].get(sid)
+    m = mget(st, mid) if st else None
+    t = m["tries"][int(ti)] if m and int(ti) < len(m["tries"]) else None
+    if not t or str(j) not in t["votes"] or code not in REASONS:
+        return answer(cq, "Причину можно указать только к своему голосу.", True)
+    t.setdefault("why", {})[str(j)] = code
+    edit(j, (cq.get("message") or {}).get("message_id"), f"📝 {m['name']}: причина записана — {REASONS[code]}.")
+    return answer(cq, "Записал")
+
+
 def choice_name(m, c):
     return "OMT" if c == "omt" else side_name(m, c)
 
@@ -777,6 +939,8 @@ def judge_vote(cq, sid, mid, ti, c):
     t["votes"][str(j)] = c
     res = decide(st, m, t)
     answer(cq, f"Голос: {choice_name(m, c)}")
+    send(j, f"Почему {choice_name(m, c)}? По желанию — причину увидят пилоты и зрители в приложении.",
+         reason_kb(st, m, int(ti)))
     if not res:
         edit(j, cq["message"]["message_id"], vote_text(st, m, int(ti)) + f"\n\nТвой голос: {choice_name(m, c)} ✔ Ждём остальных судей.")
         return
@@ -1065,6 +1229,44 @@ def send_file(chat, name, data, caption=""):
         print("Ошибка отправки файла:", e)
 
 
+_card_t = {}
+
+
+def card_prepare(req):
+    u = webapp_user(req.get("init"))
+    if not u:
+        return None, "Открой приложение в Телеграме"
+    uid = u["id"]
+    if time.time() - _card_t.get(uid, 0) < 20:
+        return None, "Подожди немного — картинку можно присылать раз в 20 секунд"
+    st = S["stages"].get(str(req.get("sid")))
+    if not st or st["state"] != "done":
+        return None, "Этап ещё не завершён"
+    raw = str(req.get("img") or "")
+    if raw.startswith("data:"):
+        raw = raw.split(",", 1)[-1]
+    try:
+        data = base64.b64decode(raw, validate=True)
+    except Exception:
+        return None, "Картинка не прочиталась"
+    if not data.startswith(b"\xff\xd8") or len(data) > 5_000_000:
+        return None, "Картинка не подходит"
+    _card_t[uid] = time.time()
+    return (uid, data, f"🏁 Итоги · {st['title']}\n{TITLE}" + (f"\n@{BOT_USERNAME}" if BOT_USERNAME else "")), None
+
+
+def send_photo(chat, data, caption=""):
+    try:
+        r = requests.post(f"{API}/sendPhoto", data={"chat_id": chat, "caption": caption[:1024]},
+                          files={"photo": ("krc.jpg", data, "image/jpeg")}, timeout=60).json()
+        if not r.get("ok"):
+            print(f"Телеграм отказал (sendPhoto): {r.get('description')}")
+        return bool(r.get("ok"))
+    except Exception as e:
+        print("Ошибка отправки фото:", e)
+        return False
+
+
 def fan_open(st):
     return st["state"] == "done" and not st.get("test") and time.time() - st.get("done_t", 0) < FAN_HOURS * 3600
 
@@ -1176,13 +1378,17 @@ def public_data():
         seeds = {u: i + 1 for i, u in enumerate(st.get("seeds", []))}
         matches = []
         for m in st["matches"]:
-            tries = [{"res": t["res"], "votes": [[nick(int(j)), v] for j, v in t["votes"].items()]} for t in m["tries"]
+            tries = [{"res": t["res"], "votes": [[nick(int(j)), v, REASONS.get(t.get("why", {}).get(j), "")]
+                                                 for j, v in t["votes"].items()]} for t in m["tries"]
                      if t["res"] is not None]
+            pk = st.get("picks", {}).get(m["id"], {})
             matches.append({"id": m["id"], "name": m["name"], "a": pub_pilot(m["pa"]), "b": pub_pilot(m["pb"]),
                             "sa": seeds.get(m["pa"]), "sb": seeds.get(m["pb"]),
                             "w": "a" if m["w"] is not None and m["w"] == m["pa"] else "b" if m["w"] is not None else None,
                             "done": m["done"], "bye": m["bye"], "live": bool(m["open"] and not m["done"]),
                             "judging": bool(try_open(m)) and not m["done"], "omt": m["omt"], "tries": tries, "manual": m.get("manual", False),
+                            "picks": [sum(1 for v in pk.values() if v == "a"), sum(1 for v in pk.values() if v == "b")],
+                            "pick_open": bool(pick_open(st, m)),
                             "until": (m["open"] + (st.get("dl", 0) + m.get("ext", 0)) * 60) if st.get("dl") and m["open"] and not m["done"] else None,
                             "protest": {"by": nick(m["protest"]["by"]), "why": m["protest"]["why"], "res": m["protest"]["res"],
                                         "votes": [[nick(int(j)), v] for j, v in m["protest"]["votes"].items()] if m["protest"]["res"] else []}
@@ -1219,6 +1425,7 @@ def public_data():
         pilots.append({"id": p["pid"], "nick": p["nick"], "club": c["name"] if c else "", "pts": tot.get(u, 0), "stages": per,
                        "best": min((h[1] for h in hist), default=None), "w": w, "l": l, "hist": hist, "num": p.get("num"),
                        "car": p.get("car", ""), "photo": p.get("photo", {}).get("k"), "fan": fan_badges(int(u)),
+                       "spec": spec_text(p.get("spec")), "carok": car_check(p.get("spec"))[0], "carwhy": car_check(p.get("spec"))[1],
                        "banned": S["banned"].get(u)})
     pilots.sort(key=lambda x: (-x["pts"], x["best"] or 999, x["nick"].lower()))
     clubs = [{"id": c["id"], "name": c["name"], "leader": nick(c["leader"]), "members": [pub_pilot(u) for u in c["members"]],
@@ -1227,7 +1434,8 @@ def public_data():
     content = {k: {"text": v.get("text", ""), "photos": [ph["k"] for ph in v.get("photos", [])]} for k, v in S["content"].items()}
     return {"title": TITLE, "bot": BOT_USERNAME, "stages": stages, "pilots": pilots, "clubs": clubs, "content": content,
             "points": S["points"], "club_max": CLUB_MAX, "season": S["season"], "seasons": S["seasons"][::-1],
-            "news": S["news"][:10]}
+            "news": S["news"][:10], "car_rules": S.get("car_rules") or CAR_RULES,
+            "pickers": [{k: v for k, v in r.items() if k != "uid"} for r in pick_table()[:20]]}
 
 
 # ---------- Меню ----------
@@ -1236,7 +1444,8 @@ HELP = ("🏁 Khinkali Racing Championship — чемпионат по дриф�
         "• Капитан создаёт клуб и добавляет до 6 пилотов. Очки пилотов идут и в личный, и в клубный зачёт.\n"
         "• Квалификация — видео соло-заезда по ТЗ и твой счёт; судьи проверяют.\n"
         "• Парные заезды — 2 видео (ведёт один, потом другой). Сдаёт любой из пары. Судьи решают: победа или OMT.\n"
-        "• Сетки, таблицы и регламент — в приложении.\n\n"
+        "• Сетки, таблицы, регламент и прогнозы на пары — в приложении.\n"
+        "• В анкете укажи вес и колёса — бот сам сверит машину с колёсным регламентом.\n\n"
         "/menu — главное меню · /club — клуб · /stages — этапы · /cancel — отменить ввод · /myid — твой ID")
 
 
@@ -1314,16 +1523,22 @@ def register(uid, sid, quiet=False):
         for k in ("q", "b"):
             if st["tz"].get(k):
                 send_tz(uid, st, k)
-    return f"✅ Ты записан на {st['title']}."
+    cs, _ = car_check(pilot(uid).get("spec"))
+    warn = {"bad": "\n⚠️ Машина не по регламенту — проверь анкету.", None: "\n⚠️ Заполни в анкете вес и колёса.",
+            "unknown": "\n⚠️ Вес вне таблицы регламента — уточни у организаторов."}.get(cs, "")
+    return f"✅ Ты записан на {st['title']}.{warn}"
 
 
 def card_menu(uid):
     p = pilot(uid)
     if not p:
         return send(uid, "Сначала стань пилотом.")
+    cs, why = car_check(p.get("spec"))
     send(uid, f"🪪 Анкета пилота {p['nick']}\nНомер: {('#' + str(p['num'])) if p.get('num') else '—'}\n"
-              f"Машина: {p.get('car') or '—'}\nФото: {'есть' if p.get('photo') else 'нет'}\n\nВсё это видно в приложении.",
-         kb([[b("🔢 Номер", "m:num"), b("🚗 Машина", "m:car")], [b("📸 Фото машины", "m:pphoto")]]))
+              f"Машина: {p.get('car') or '—'}\nФото: {'есть' if p.get('photo') else 'нет'}\n"
+              f"Вес и колёса: {spec_text(p.get('spec')) or '—'}\n"
+              f"Регламент: {car_mark(uid)} {why}\n\nВсё это видно в приложении.",
+         kb([[b("🔢 Номер", "m:num"), b("🚗 Машина", "m:car")], [b("📸 Фото машины", "m:pphoto"), b("📏 Вес и колёса", "m:spec")]]))
 
 
 def club_menu(uid):
@@ -1403,6 +1618,8 @@ def stage_menu(uid, st):
     if s in ("draft", "reg"):
         rows.append([b("⚙️ Настройки", f"sa:{sid}:edit"), b("👨‍⚖️ Судьи", f"sj:{sid}")])
         rows.append([b("📋 ТЗ квалификации", f"tze:{sid}:q") if st["qual"] else None, b("📋 ТЗ парных", f"tze:{sid}:b")])
+        if not st["tz"] and any(x["tz"] for x in S["stages"].values() if x["id"] != sid):
+            rows.append([b("📋 Взять ТЗ из прошлого этапа", f"sa:{sid}:tzcopy")])
     if s == "draft":
         rows.append([b("▶️ Открыть регистрацию", f"sa:{sid}:open"), b("🗑 Удалить", f"sa:{sid}:del")])
     if s == "reg":
@@ -1454,6 +1671,25 @@ def on_text(msg, uid, aw, text):
     if aw == "car" and pilot(uid):
         pilot(uid)["car"] = text.strip()[:40]
         return card_menu(uid)
+    if aw == "spec" and pilot(uid):
+        sp = parse_spec(text)
+        if not sp:
+            u["aw"] = aw
+            return send(uid, "Не понял. Пример: 1250 275/35 R18 — вес в кг и колёса (ширина/профиль R диаметр). "
+                             "Разные оси: 1250 265/35 R18 275/35 R18. Отмена — /cancel.")
+        pilot(uid)["spec"] = sp
+        cs, why = car_check(sp)
+        send(uid, {"ok": "✅ По регламенту", "bad": "❌ Не по регламенту", "unknown": "❓ Не получилось проверить"}[cs] + f": {why}.")
+        return card_menu(uid)
+    if aw == "car_rules" and uid == CAR_ADMIN:
+        rules = parse_rules(text)
+        if not rules:
+            u["aw"] = aw
+            return send(uid, "Не понял таблицу. Каждая строка: «1000-1099 245 R18 35» (вес, ширина, диаметр, профиль). "
+                             "Строки альтернативного варианта начинаются со слова «альт». Отмена — /cancel.")
+        S["car_rules"] = rules
+        send(uid, "✅ Таблица автопроверки обновлена — пилоты сразу проверяются по ней.")
+        return car_menu(uid)
     if aw.startswith("dsq:") and is_org(uid):
         _, sid, x = aw.split(":")
         st = S["stages"].get(sid)
@@ -1592,6 +1828,8 @@ def on_text(msg, uid, aw, text):
     if aw == "car_photo":
         u["aw"] = aw
         return send(uid, "Жду фото регламента авто (картинкой или файлом). Передумал — /cancel.")
+    if aw == "car_rules":
+        return send(uid, "Таблицу может менять только владелец.")
     if aw.startswith("ct_photo:"):
         if text.strip() in ("/done", "/skip"):
             return content_menu(uid, aw.split(":")[1])
@@ -1637,7 +1875,7 @@ def judges_menu(uid, st):
 
 def car_menu(uid):
     has = bool(S["content"]["car"]["photos"])
-    rows = [[b("📤 Заменить фото", "rc:new")]]
+    rows = [[b("📤 Заменить фото", "rc:new")], [b("📐 Таблица автопроверки", "rc:tbl")]]
     if has:
         rows.append([b("↩️ Вернуть картинку из PDF", "rc:reset")])
     rows.append([b("⬅️ Назад", "m:org")])
@@ -1711,7 +1949,9 @@ def handle(msg):
     if aw == "car_photo" and uid == CAR_ADMIN and car_photo_id(msg):
         u.pop("aw", None)
         S["content"]["car"]["photos"] = [{"k": f"c{next_id('img')}", "f": car_photo_id(msg)}]
-        send(uid, "✅ Фото регламента авто обновлено — в приложении уже новое.")
+        send(uid, "✅ Фото регламента авто обновлено — в приложении уже новое.\n\n"
+                  "Если цифры в таблице поменялись — обнови и таблицу автопроверки, по ней бот проверяет машины пилотов.",
+             kb([[b("📐 Таблица автопроверки", "rc:tbl")]]))
         return car_menu(uid)
     if aw.startswith("ct_photo:") and msg.get("photo"):
         page = aw.split(":")[1]
@@ -1809,6 +2049,11 @@ def handle_cb(cq):
             return send(uid, "Напиши свой ник в игре (как в CarX):")
         if p[1] == "card":
             return card_menu(uid)
+        if p[1] == "spec" and pilot(uid):
+            user(uid)["aw"] = "spec"
+            return send(uid, "📏 Напиши вес машины и колёса одной строкой, как в игре.\n\n"
+                             "Одинаковые колёса: 1250 275/35 R18\nРазные: 1250 265/35 R18 275/35 R18 (сначала перед, потом зад)\n\n"
+                             "Бот сразу сверит с колёсным регламентом.")
         if p[1] in ("num", "car", "pphoto") and pilot(uid):
             user(uid)["aw"] = p[1]
             return send(uid, {"num": "Напиши свой гоночный номер (1–999):", "car": "Какая у тебя машина? (до 40 символов)",
@@ -1854,6 +2099,8 @@ def handle_cb(cq):
         return withdraw(cq, p[1], p[2], p[3])
     if k == "jv":
         return judge_vote(cq, p[1], p[2], p[3], p[4])
+    if k == "jw":
+        return judge_reason(cq, p[1], p[2], p[3], p[4])
     if k == "jq":
         return qual_judge(cq, p[1], int(p[2]), p[3])
     if k == "pr":
@@ -1873,6 +2120,16 @@ def handle_cb(cq):
         if len(p) > 1 and p[1] == "reset":
             S["content"]["car"]["photos"] = []
             send(uid, "↩️ Вернул картинку из PDF регламента.")
+        if len(p) > 1 and p[1] == "tbl":
+            return send(uid, "📐 Таблица автопроверки (вес · ширина · диаметр · профиль):\n\n" + rules_text(S["car_rules"]),
+                        kb([[b("✏️ Изменить", "rc:tbledit"), b("↩️ Как в PDF", "rc:tbldef")], [b("⬅️ Назад", "rc")]]))
+        if len(p) > 1 and p[1] == "tbledit":
+            user(uid)["aw"] = "car_rules"
+            return send(uid, "Пришли таблицу целиком, по строке на вес. Сейчас так (можно скопировать и поправить):\n\n"
+                        + rules_text(S["car_rules"]))
+        if len(p) > 1 and p[1] == "tbldef":
+            S["car_rules"] = json.loads(json.dumps(CAR_RULES))
+            send(uid, "↩️ Таблица как в PDF.")
         return car_menu(uid)
     if not is_org(uid):
         return answer(cq, "Это для организаторов.", True)
@@ -2193,6 +2450,13 @@ def stage_action(cq, uid, st, act, extra):
                     ("\n⚠️ Сначала назначь судей — иначе заезды некому будет решать." if not st["judges"] else ""),
                     kb([nxt, [b("👨‍⚖️ Судьи", f"sj:{st['id']}"), b("🔓 Открыть снова", f"sa:{st['id']}:reopen")],
                         [b("⬅️ К этапу", f"sm:{st['id']}")]]))
+    if act == "tzcopy" and s in ("draft", "reg"):
+        src = next((x for x in sorted(S["stages"].values(), key=lambda x: -x["n"]) if x["tz"] and x["id"] != st["id"]), None)
+        if not src:
+            return answer(cq, "ТЗ ещё нет ни в одном этапе.", True)
+        st["tz"] = json.loads(json.dumps(src["tz"]))
+        answer(cq, f"Скопировал ТЗ из «{src['title']}»", True)
+        return stage_menu(uid, st)
     if act == "live" and s == "run":
         answer(cq)
         return live_panel(uid, st)
@@ -2224,7 +2488,8 @@ def stage_action(cq, uid, st, act, extra):
     if act == "list":
         answer(cq)
         rows = [[b(f"✖️ {nick(x)}", f"sa:{st['id']}:kick:{x}") for x in st["reg"][i:i + 2]] for i in range(0, len(st["reg"]), 2)]
-        return send(uid, f"👥 {st['title']}: {len(st['reg'])}\n" + "\n".join(f"{i + 1}. {nick(x)}" for i, x in enumerate(st["reg"])),
+        return send(uid, f"👥 {st['title']}: {len(st['reg'])}\n" + "\n".join(f"{i + 1}. {car_mark(x)} {nick(x)}" for i, x in enumerate(st["reg"]))
+                    + "\n\n✅ машина по регламенту · ❌ нет · ❓ вес вне таблицы · ▫️ не заполнил анкету",
                     kb(rows[:40] + [[b("⬅️ К этапу", f"sm:{st['id']}")]]))
     if act == "kick" and s in ("reg", "qual"):
         x = int(extra[0])
@@ -2303,7 +2568,11 @@ def app_api(req):
                 if uid in st["reg"] or uid in st.get("pend", [])}
         a_st, a_m = active_for(uid)
         judge = any(uid in st["judges"] for st in stage_list(["reg", "qual", "run"]))
+        my_picks = {sid: {mid: pk[str(uid)] for mid, pk in st.get("picks", {}).items() if str(uid) in pk}
+                    for sid, st in S["stages"].items() if any(str(uid) in pk for pk in st.get("picks", {}).values())}
+        my_stat = next(([r["ok"], r["n"]] for r in pick_table() if r["uid"] == uid), [0, 0])
         return {"ok": True, "org": is_org(uid), "pid": p["pid"] if p else None, "fans": mine, "reg": regs,
+                "picks": my_picks, "pstat": my_stat,
                 "judge": judge, "jq": len(judge_queue(uid)) if judge else 0,
                 "pair": {"sid": a_st["id"], "mid": a_m["id"] if a_m else None,
                          "status": pair_status(a_st, a_m)[1] if a_m else None,
@@ -2311,6 +2580,9 @@ def app_api(req):
                 if a_st else None}
     if req.get("act") == "fan":
         return fan_vote(uid, req.get("sid"), req.get("mid"))
+    if req.get("act") == "pick":
+        remember(u)  # имя для таблицы прогнозистов
+        return pick(uid, req.get("sid"), req.get("mid"), req.get("side"))
     if not is_org(uid):
         return {"ok": False, "error": "Править сетку могут только организаторы"}
     st = S["stages"].get(str(req.get("sid")))
@@ -2423,6 +2695,18 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        if self.path.startswith("/api") and b'"card"' in body:
+            try:
+                req = json.loads(body or b"{}")
+            except Exception:
+                req = {}
+            if req.get("act") == "card":
+                with LOCK:  # под замком только проверка, отправка картинки — без него
+                    load_state()
+                    job, err = card_prepare(req)
+                ok = bool(job) and send_photo(*job)
+                return self.reply_json({"ok": ok, "error": None if ok else err or
+                                        "Телеграм не принял картинку — открой бота и нажми Start"})
         if self.path.startswith("/api"):
             with LOCK:
                 try:

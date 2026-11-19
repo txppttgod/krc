@@ -1,6 +1,6 @@
 # Проверки bot.py с поддельными Telegram и Supabase — без интернета и без ключей.
 # Запуск из корня репозитория: python tests/test_bot.py (GitHub запускает их сам при каждом изменении).
-import sys, types, json, os, time, hmac, hashlib, urllib.parse
+import sys, types, json, os, time, hmac, hashlib, urllib.parse, base64
 
 calls = []
 DB = {"data": None}
@@ -711,6 +711,81 @@ c = tap(A, "m:pair"); check("my pair: at judges", "у судей" in texts(c))
 c = tap(2, f"nd:{st12}:{m12['id']}"); check("nudge judges resends pair", any(m == "sendMediaGroup" and p["chat_id"] == 11 for m, p in c))
 r = api({"init": init_for(11), "act": "me"}); check("app knows judge queue", r["judge"] and r["jq"] >= 1)
 c = tap(5, f"nd:{st12}:{m12['id']}"); check("non-organizer cannot nudge", not any("Организатор просит" in p.get("text", "") for m, p in c))
+# ---------- анкета: вес и колёса, автопроверка ----------
+tap(160, "m:spec"); c = dm(160, "1250 275/35 R18")
+check("spec saved and checked ok", S()["pilots"]["160"]["spec"]["w"] == 1250 and "По регламенту" in texts(c))
+tap(161, "m:spec"); c = dm(161, "колёса 295/35 R19"); check("spec without weight asks again", "Не понял" in texts(c))
+c = dm(161, "1350 295/35 R19"); check("bad spec explained", "Не по регламенту" in texts(c) and "диаметр R19 > R18" in texts(c))
+c = tap(160, "m:card"); check("card shows spec and check", "1250 кг" in texts(c) and "✅" in texts(c) and "m:spec" in btns(c))
+d = bot.public_data(); p160 = next(x for x in d["pilots"] if x["nick"] == bot.nick(160))
+check("spec in app data", p160["spec"].startswith("1250 кг") and p160["carok"] == "ok" and d["car_rules"]["main"][0][0] == 1000)
+# ---------- новый этап: ТЗ из прошлого, предупреждения при записи ----------
+bot.load_state()
+for x in bot.S["stages"].values():
+    if x["state"] in ("qual", "run", "reg"):
+        x["state"] = "done" if x["state"] != "reg" else "draft"
+bot.S["stages"][st12]["tz"] = {"b": {"text": "ТЗ двенадцатого"}}
+bot.save_state()
+tap(2, "st:new"); tap(2, "sd:jn"); tap(2, "sd:qual"); tap(2, "sd:ok"); st13 = max(S()["stages"], key=int)
+c = tap(2, f"sm:{st13}"); check("offer to copy TZ", f"sa:{st13}:tzcopy" in btns(c))
+c = tap(2, f"sa:{st13}:tzcopy"); check("TZ copied from previous stage", S()["stages"][st13]["tz"]["b"]["text"] == "ТЗ двенадцатого")
+c = tap(2, f"sm:{st13}"); check("no copy offer once TZ exists", f"sa:{st13}:tzcopy" not in btns(c))
+tap(2, f"sa:{st13}:open")
+c = tap(160, f"rg:{st13}"); check("no warning when car ok", "⚠️" not in str(c))
+c = tap(161, f"rg:{st13}"); check("warning when car not ok", "не по регламенту" in str(c))
+c = tap(104, f"rg:{st13}"); check("warning when spec missing", "Заполни в анкете вес и колёса" in str(c))
+c = tap(2, f"sa:{st13}:list"); check("participants list marks cars", "✅" in texts(c) and "❌" in texts(c) and "▫️" in texts(c))
+c = tap(2, f"sm:{st13}"); check("readiness counts unchecked cars", "Машина не проверена или не по регламенту: 2" in texts(c))
+# ---------- таблица автопроверки (только владелец фото) ----------
+c = tap(1, "rc:tbl"); check("owner sees check table", "1000-1099 245 R18 35" in texts(c) and "rc:tbledit" in btns(c))
+c = tap(2, "rc:tbledit"); check("others cannot edit table", "только владелец" in str(c) and S()["users"]["2"].get("aw") != "car_rules")
+tap(1, "rc:tbledit"); c = dm(1, "ерунда"); check("bad table refused", "Не понял таблицу" in texts(c))
+c = dm(1, "1000-1499 300 R20 40\nальт 1300-1399 285 R19 35")
+check("table updated", S()["car_rules"]["main"] == [[1000, 1499, 300, 20, 40]] and S()["car_rules"]["alt"] == [[1300, 1399, 285, 19, 35]])
+bot.load_state(); check("check follows new table", bot.car_check(bot.S["pilots"]["161"]["spec"])[0] == "ok")
+tap(1, "rc:tbldef"); bot.load_state(); check("table back to PDF", bot.S["car_rules"] == bot.CAR_RULES)
+# ---------- прогнозы зрителей ----------
+tap(2, f"sj:{st13}:add"); dm(2, "@user11")
+tap(2, f"sa:{st13}:close"); tap(2, f"sa:{st13}:br")
+bot.load_state(); m13 = next(m for m in bot.S["stages"][st13]["matches"] if m["open"] and not m["done"] and not m["bye"])
+P1, P2, mid13 = m13["pa"], m13["pb"], m13["id"]
+r = api({"init": init_for(150), "act": "pick", "sid": st13, "mid": mid13, "side": "a"}); check("viewer picks", r["ok"])
+r = api({"init": init_for(151), "act": "pick", "sid": st13, "mid": mid13, "side": "b"})
+r = api({"init": init_for(152), "act": "pick", "sid": st13, "mid": mid13, "side": "b"})
+r = api({"init": init_for(152), "act": "pick", "sid": st13, "mid": mid13, "side": "a"}); check("pick can be changed", r["ok"])
+r = api({"init": init_for(P1), "act": "pick", "sid": st13, "mid": mid13, "side": "a"}); check("participant cannot pick", not r["ok"] and "свою пару" in r["error"])
+r = api({"init": init_for(11), "act": "pick", "sid": st13, "mid": mid13, "side": "a"}); check("judge cannot pick", not r["ok"])
+r = api({"init": init_for(150), "act": "pick", "sid": st13, "mid": mid13, "side": "x"}); check("bad side refused", not r["ok"])
+dm13 = [x for x in bot.public_data()["stages"] if x["id"] == st13][0]
+mm = next(x for x in dm13["matches"] if x["id"] == mid13)
+check("crowd split public", mm["picks"] == [2, 1] and mm["pick_open"])
+r = api({"init": init_for(150), "act": "me"}); check("my pick in me", r["picks"][st13][mid13] == "a")
+dm(P1, video={"file_id": "p1", "file_unique_id": "P1"}); tap(P1, "up:lead:a")
+dm(P1, video={"file_id": "p2", "file_unique_id": "P2"}); tap(P1, "up:send")
+r = api({"init": init_for(153), "act": "pick", "sid": st13, "mid": mid13, "side": "a"}); check("picks close when at judges", not r["ok"] and "закрыты" in r["error"])
+# ---------- причина решения судьи ----------
+c = tap(11, f"jv:{st13}:{mid13}:0:a")
+check("judge asked for reason", any(x.startswith(f"jw:{st13}:{mid13}:0:") for x in btns(c)))
+c = tap(12, f"jw:{st13}:{mid13}:0:lead"); check("only voting judge sets reason", "только к своему голосу" in str(c))
+c = tap(11, f"jw:{st13}:{mid13}:0:lead"); check("reason saved", "причина записана" in texts(c))
+dm13 = [x for x in bot.public_data()["stages"] if x["id"] == st13][0]
+mm = next(x for x in dm13["matches"] if x["id"] == mid13)
+check("reason public with vote", mm["tries"][0]["votes"][0][2] == "лидер сильнее")
+pk = bot.public_data()["pickers"]
+check("pickers table counts hits", [r_["ok"] for r_ in pk[:2]] == [1, 1] and pk[-1]["ok"] == 0 and all(r_["n"] == 1 for r_ in pk))
+check("pickers table hides ids", all("uid" not in r_ for r_ in pk))
+r = api({"init": init_for(150), "act": "me"}); check("my pick stats", r["pstat"] == [1, 1])
+# ---------- картинка итогов этапа ----------
+jpg = "data:image/jpeg;base64," + base64.b64encode(b"\xff\xd8\xff\xe0" + b"0" * 200).decode()
+job, err = bot.card_prepare({"init": init_for(150), "sid": st13, "img": jpg}); check("card only for finished stage", job is None and "не завершён" in err)
+run_all(st13)
+bot.load_state()
+job, err = bot.card_prepare({"init": init_for(150), "sid": st13, "img": "data:image/png;base64,iVBORw0KGgo="}); check("card must be jpeg", job is None)
+job, err = bot.card_prepare({"init": init_for(150), "sid": st13, "img": jpg})
+check("card prepared", job and job[0] == 150 and job[1].startswith(b"\xff\xd8") and "Итоги" in job[2])
+calls.clear(); ok = bot.send_photo(*job); check("card sent as photo", ok and any(m == "sendPhoto" for m, p_ in calls))
+job2, err = bot.card_prepare({"init": init_for(150), "sid": st13, "img": jpg}); check("card rate limited", job2 is None and "20 секунд" in err)
+job3, err = bot.card_prepare({"init": init_for(150, bad=True), "sid": st13, "img": jpg}); check("card needs Telegram", job3 is None)
 check("every keyboard is valid for Telegram", not BAD_KB, BAD_KB[:5])
 print("\n".join(checks))
 failed = sum(x.startswith("FAIL") for x in checks)
