@@ -645,6 +645,30 @@ r = api({"init": init_for(160), "act": "me"}); check("app knows pilot is registe
 c = dm(160, "/menu"); check("registered pilot sees leave button", f"ul:{st10}" in btns(c) and "Выйти" in str(c))
 tap(2, f"sa:{st10}:close"); c = dm(161, "/start"); tap(161, "m:pilot"); c = dm(161, "LateOne")
 check("no registration offer when closed", f"rg:{st10}" not in btns(c))
+# ---------- судьи: заезд ещё раз, новый судья получает то, что уже сдали ----------
+bot.load_state()
+for x in bot.S["stages"].values():
+    if x["state"] in ("qual", "run", "reg"):
+        x["state"] = "done" if x["state"] != "reg" else "draft"
+bot.save_state()
+tap(2, "st:new"); tap(2, "sd:jn"); c = tap(2, "sd:ok"); st11 = max(S()["stages"], key=int)
+tap(2, f"sj:{st11}:add"); dm(2, "@user11")
+tap(2, f"sa:{st11}:open"); tap(160, f"rg:{st11}"); tap(161, f"rg:{st11}")
+tap(2, f"sa:{st11}:br")
+bot.load_state(); m11 = next(m for m in bot.S["stages"][st11]["matches"] if m["open"] and not m["done"])
+c = dm(m11["pa"], video={"file_id": "j1", "file_unique_id": "J1"}); tap(m11["pa"], "up:lead:a")
+dm(m11["pa"], video={"file_id": "j2", "file_unique_id": "J2"}); c = tap(m11["pa"], "up:send")
+check("pair sent to first judge", any(m == "sendMediaGroup" and p["chat_id"] == 11 for m, p in c))
+c = tap(2, f"sj:{st11}:add"); c = dm(2, "@user12")
+check("new judge gets pending pair at once", any(m == "sendMediaGroup" and p["chat_id"] == 12 for m, p in c)
+      and any(x.startswith(f"jv:{st11}:") for x in btns([(m, p) for m, p in c if (p or {}).get("chat_id") == 12])))
+c = dm(12, "/menu"); check("judge sees queue button", "jr" in btns(c) and "ждут решения 1" in str(c))
+c = tap(12, "jr"); check("judge resend button", any(m == "sendMediaGroup" and p["chat_id"] == 12 for m, p in c))
+c = dm(11, "/judge"); check("/judge resends", any(m == "sendMediaGroup" and p["chat_id"] == 11 for m, p in c))
+c = dm(160, "/judge"); check("non-judge /judge refused", "не судья" in texts(c))
+bot.load_state(); t11 = bot.mget(bot.S["stages"][st11], m11["id"])["tries"][-1]; ti = len(bot.mget(bot.S["stages"][st11], m11["id"])["tries"]) - 1
+c = tap(12, f"jv:{st11}:{m11['id']}:{ti}:a")
+c = dm(12, "/judge"); check("after decision nothing pending", "нет заездов" in texts(c) or "не судья ни одного" in texts(c))
 check("every keyboard is valid for Telegram", not BAD_KB, BAD_KB[:5])
 print("\n".join(checks))
 failed = sum(x.startswith("FAIL") for x in checks)

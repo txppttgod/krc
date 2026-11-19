@@ -450,11 +450,7 @@ def qual_submit(uid, st, file_id, score):
     if not judges:
         orgs_dm(f"⚠️ {st['title']}: {nick(uid)} сдал квалификацию, а судей нет. Назначь судей в меню этапа.")
     for j in judges:
-        api("sendVideo", {"chat_id": j, "video": file_id,
-                          "caption": f"⏱ Квалификация · {st['title']}\nПилот: {nick(uid)}\nЗаявлено очков: {score:g}"})
-        run["jm"][str(j)] = send(j, f"Квалификация {nick(uid)}: {score:g} очков. Проверь видео по ТЗ.",
-                                 kb([[b("✅ Засчитать", f"jq:{st['id']}:{uid}:ok"), b("✏️ Исправить счёт", f"jq:{st['id']}:{uid}:fix")],
-                                     [b("❌ Не по ТЗ", f"jq:{st['id']}:{uid}:no")]]))
+        send_qual(st, uid, run, j)
     send(uid, f"✅ Квалификация отправлена судьям: {score:g} очков. Бот напишет, когда её проверят.")
 
 
@@ -582,10 +578,54 @@ def to_judges(st, m, t):
         orgs_dm(f"⚠️ {st['title']} · {m['name']}: заезд сдан, а судей нет (или они сами в этой паре). "
                 "Назначь судей или поставь результат вручную.")
     for j in js:
-        api("sendMediaGroup", {"chat_id": j, "media": [
-            {"type": "video", "media": t["v"][0], "caption": f"Заезд 1 — ведёт {side_name(m, 'a')}"},
-            {"type": "video", "media": t["v"][1], "caption": f"Заезд 2 — ведёт {side_name(m, 'b')}"}]})
-        t["jm"][str(j)] = send(j, vote_text(st, m, ti), vote_kb(st, m, ti))
+        send_pair(st, m, t, j)
+
+
+def send_pair(st, m, t, j):
+    ti = m["tries"].index(t)
+    api("sendMediaGroup", {"chat_id": j, "media": [
+        {"type": "video", "media": t["v"][0], "caption": f"Заезд 1 — ведёт {side_name(m, 'a')}"},
+        {"type": "video", "media": t["v"][1], "caption": f"Заезд 2 — ведёт {side_name(m, 'b')}"}]})
+    t["jm"][str(j)] = send(j, vote_text(st, m, ti) + (f"\n\nТвой голос: {choice_name(m, t['votes'][str(j)])} ✔"
+                                                       if str(j) in t["votes"] else ""),
+                           None if str(j) in t["votes"] else vote_kb(st, m, ti))
+
+
+def send_qual(st, uid, run, j):
+    api("sendVideo", {"chat_id": j, "video": run["f"],
+                      "caption": f"⏱ Квалификация · {st['title']}\nПилот: {nick(uid)}\nЗаявлено очков: {run['score']:g}"})
+    run["jm"][str(j)] = send(j, f"Квалификация {nick(uid)}: {run['score']:g} очков. Проверь видео по ТЗ.",
+                             kb([[b("✅ Засчитать", f"jq:{st['id']}:{uid}:ok"), b("✏️ Исправить счёт", f"jq:{st['id']}:{uid}:fix")],
+                                 [b("❌ Не по ТЗ", f"jq:{st['id']}:{uid}:no")]]))
+
+
+def judge_queue(j, sid=None):
+    # всё, что сейчас ждёт решения и что этот судья может судить
+    out = []
+    for st in stage_list(["qual", "run"]):
+        if j not in st["judges"] or (sid and st["id"] != sid):
+            continue
+        if st["state"] == "qual":
+            out += [("q", st, int(u), r) for u, r in st["qruns"].items() if r["st"] == "wait" and int(u) != j]
+        else:
+            out += [("b", st, m, try_open(m)) for m in st["matches"]
+                    if not m["done"] and try_open(m) and j in eligible(st, m) and str(j) not in try_open(m)["votes"]]
+    return out
+
+
+def judge_resend(j, sid=None, quiet=False):
+    q = judge_queue(j, sid)
+    if not q:
+        if not quiet:
+            send(j, "⚖️ Сейчас нет заездов, которые ждут решения судей.")
+        return 0
+    send(j, f"⚖️ Заездов ждут решения: {len(q)}. Присылаю ещё раз.")
+    for kind, st, x, y in q[:15]:
+        if kind == "q":
+            send_qual(st, x, y, j)
+        else:
+            send_pair(st, x, y, j)
+    return len(q)
 
 
 def vote_text(st, m, ti):
@@ -1117,6 +1157,7 @@ def home(uid, chat=None, mid=None):
     rows += [[b("✏️ Мой ник" if p else "🏎 Стать пилотом", "m:pilot"), b("🏁 Этапы", "m:stages")],
             [b("🪪 Анкета: номер, машина, фото", "m:card")] if p else None,
             [b("👥 Клуб", "m:club"), b("❓ Как это работает", "m:help")], app_row(),
+            [b(f"⚖️ Судейство: ждут решения {len(judge_queue(uid))}", "jr")] if any(uid in s_["judges"] for s_ in open_st) else None,
             [b("⚙️ Организатор", "m:org")] if is_org(uid) else None]
     if mid:
         edit(chat, mid, text, kb(rows))
@@ -1406,8 +1447,10 @@ def on_text(msg, uid, aw, text):
             return send(uid, "Не нашёл. Судья должен сначала открыть бота и нажать Start.")
         if target not in st["judges"]:
             st["judges"].append(target)
-            send(target, f"👨‍⚖️ Тебя назначили судьёй: {st['title']}. Заезды будут приходить сюда, в личку.")
+            send(target, f"👨‍⚖️ Тебя назначили судьёй: {st['title']}. Заезды будут приходить сюда, в личку."
+                         "\nЕсли что-то потерялось — /judge пришлёт всё, что ждёт решения.")
             log(uid, f"{st['title']}: судья {nick(target)}")
+            judge_resend(target, st["id"], quiet=True)
         return judges_menu(uid, st)
     if aw == "org_add" and is_owner(uid):
         target = user_by_un(text)
@@ -1593,6 +1636,10 @@ def handle(msg):
         return club_menu(uid)
     if cmd == "/stages":
         return stages_menu(uid)
+    if cmd == "/judge":
+        if not any(uid in st["judges"] for st in stage_list(["reg", "qual", "run"])):
+            return send(uid, "Ты не судья ни одного идущего этапа.")
+        return judge_resend(uid)
     if cmd == "/carphoto" and uid == CAR_ADMIN:
         return car_menu(uid)
     if cmd == "/admin" and is_org(uid):
@@ -1690,6 +1737,9 @@ def handle_cb(cq):
         return protest_start(cq, p[1], p[2])
     if k == "pv":
         return protest_vote(cq, p[1], p[2], p[3])
+    if k == "jr":
+        answer(cq)
+        return judge_resend(uid)
     if k == "rc":
         if uid != CAR_ADMIN:
             return answer(cq, "Менять это фото может только владелец.", True)
@@ -2287,7 +2337,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 MENU = [("menu", "Главное меню"), ("stages", "Этапы и регистрация"), ("club", "Мой клуб"),
-        ("help", "Как это работает"), ("cancel", "Отменить ввод"), ("myid", "Мой Telegram ID")]
+        ("help", "Как это работает"), ("cancel", "Отменить ввод"), ("judge", "Судьям: прислать заезды ещё раз"), ("myid", "Мой Telegram ID")]
 
 
 def setup():
