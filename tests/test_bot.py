@@ -20,12 +20,19 @@ def fake_get(url, **kw):
     return Resp(None)
 
 
+BAD_KB = []
+
+
 def fake_post(url, json=None, **kw):
     if "supabase" in url:
         DB["data"] = json["data"]
         return Resp(None, 201)
     method = url.rsplit("/", 1)[1]
     calls.append((method, json))
+    ik = ((json or {}).get("reply_markup") or {}).get("inline_keyboard")
+    if ik is not None and any(not r or any(not isinstance(x, dict) or not x.get("text") for x in r) for r in ik):
+        BAD_KB.append((method, (json or {}).get("text", "")[:60]))  # Телеграм такое не примет
+        return Resp({"ok": False, "description": "Bad Request: can't parse inline keyboard button"})
     if method == "sendMessage":
         return Resp({"ok": True, "result": {"message_id": 1000 + len(calls)}})
     if method == "getFile":
@@ -619,6 +626,26 @@ d9 = [x for x in bot.public_data()["stages"] if x["id"] == st9][0]; check("close
 c = tap(2, f"sa:{st9}:reopen"); tap(111, f"rg:{st9}")
 check("registration reopened", not S()["stages"][st9]["closed"] and 111 in S()["stages"][st9]["reg"])
 c = tap(5, f"sa:{st9}:close"); check("non-organizer cannot close", not S()["stages"][st9]["closed"])
+# ---------- запись соло: кнопка видна сразу ----------
+tap(2, "st:new"); tap(2, "sd:appr"); tap(2, "sd:ok"); st10 = max(S()["stages"], key=int)
+bot.load_state()
+for x in bot.S["stages"].values():
+    if x["state"] == "reg" and x["id"] != st10:
+        x["closed"] = True
+bot.save_state()
+tap(2, f"sa:{st10}:open")
+dm(160, "/start"); tap(160, "m:pilot"); c = dm(160, "SoloNew")
+check("new pilot is offered open registration", f"rg:{st10}" in btns(c) and any("идёт регистрация" in p.get("text", "") for m, p in c))
+c = dm(160, "/menu"); check("solo pilot sees register button in main menu", f"rg:{st10}" in btns(c))
+tap(160, f"rg:{st10}")
+c = dm(160, "/menu"); check("pending application shown in main menu", f"ul:{st10}" in btns(c) and "Заявка у организаторов" in str(c))
+r = api({"init": init_for(160), "act": "me"}); check("app knows pending application", r["reg"].get(st10) == "pend")
+tap(2, f"ap:{st10}:160:ok")
+r = api({"init": init_for(160), "act": "me"}); check("app knows pilot is registered", r["reg"].get(st10) == "in")
+c = dm(160, "/menu"); check("registered pilot sees leave button", f"ul:{st10}" in btns(c) and "Выйти" in str(c))
+tap(2, f"sa:{st10}:close"); c = dm(161, "/start"); tap(161, "m:pilot"); c = dm(161, "LateOne")
+check("no registration offer when closed", f"rg:{st10}" not in btns(c))
+check("every keyboard is valid for Telegram", not BAD_KB, BAD_KB[:5])
 print("\n".join(checks))
 failed = sum(x.startswith("FAIL") for x in checks)
 print("FAILED:", failed, "of", len(checks))

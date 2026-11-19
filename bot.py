@@ -115,13 +115,18 @@ def log(who, text):
 # ---------- Телеграм ----------
 def api(method, payload):
     try:
-        return requests.post(f"{API}/{method}", json=payload, timeout=15).json()
+        res = requests.post(f"{API}/{method}", json=payload, timeout=15).json()
+        if not res.get("ok"):
+            print(f"Телеграм отказал ({method}): {res.get('description')}")
+        return res
     except Exception as e:
         print("Ошибка API:", e)
         return {}
 
 
 def kb(rows):
+    # пустые кнопки внутри ряда Телеграм не принимает — меню просто не приходит
+    rows = [[x for x in r if x] for r in rows if r]
     return {"inline_keyboard": [r for r in rows if r]}
 
 
@@ -1091,13 +1096,25 @@ HELP = ("🏁 Khinkali Racing Championship — чемпионат по дриф�
         "/menu — главное меню · /club — клуб · /stages — этапы · /cancel — отменить ввод · /myid — твой ID")
 
 
+def reg_button(uid, st, short=False):
+    t = "" if short else ": " + st["title"]
+    if uid in st["reg"]:
+        return b("🚪 Выйти" + t, f"ul:{st['id']}")
+    if uid in st.get("pend", []):
+        return b("⏳ Заявка у организаторов — отозвать" + t, f"ul:{st['id']}")
+    if st.get("closed"):
+        return None
+    return b(("✋ Подать заявку" if st.get("appr") else "✋ Участвую") + t, f"rg:{st['id']}")
+
+
 def home(uid, chat=None, mid=None):
     p = pilot(uid)
     c = club_of(uid)
     open_st = stage_list(["reg", "qual", "run"])
     text = (f"🏁 {TITLE}\n\n" + (f"Пилот: {p['nick']} · {('клуб ' + c['name']) if c else 'соло'}" if p else "Ты ещё не пилот.")
             + ("\n\nСейчас: " + "; ".join(f"{s['title']} — {STATE_RU[s['state']]}" for s in open_st) if open_st else ""))
-    rows = [[b("✏️ Мой ник" if p else "🏎 Стать пилотом", "m:pilot"), b("🏁 Этапы", "m:stages")],
+    rows = [[x] for x in (reg_button(uid, s_) for s_ in open_st if s_["state"] == "reg") if x][:2] if p else []
+    rows += [[b("✏️ Мой ник" if p else "🏎 Стать пилотом", "m:pilot"), b("🏁 Этапы", "m:stages")],
             [b("🪪 Анкета: номер, машина, фото", "m:card")] if p else None,
             [b("👥 Клуб", "m:club"), b("❓ Как это работает", "m:help")], app_row(),
             [b("⚙️ Организатор", "m:org")] if is_org(uid) else None]
@@ -1114,9 +1131,8 @@ def stages_menu(uid):
         return
     rows = []
     for st in sts[-8:]:
-        if st["state"] == "reg" and (uid in st["reg"] or not st.get("closed")):
-            rows.append([b(("🚪 Выйти: " if uid in st["reg"] else "✋ Участвую: ") + st["title"],
-                           f"{'ul' if uid in st['reg'] else 'rg'}:{st['id']}")])
+        if st["state"] == "reg" and reg_button(uid, st):
+            rows.append([reg_button(uid, st)])
         if st["tz"]:
             rows.append([b(f"📋 ТЗ · {st['title']}", f"tzm:{st['id']}")])
     c = next((x for x in S["clubs"].values() if x["leader"] == uid), None)
@@ -1343,6 +1359,11 @@ def on_text(msg, uid, aw, text):
         else:
             S["pilots"][str(uid)] = {"pid": next_id("pid"), "nick": t, "club": None, "t": int(time.time())}
         send(uid, f"✅ Ник: {t}")
+        if not p:
+            for st in stage_list(["reg"]):
+                if not st.get("closed"):
+                    send(uid, f"🏁 Сейчас идёт регистрация: {st['title']}. Можно ехать соло или в составе клуба.",
+                         kb([[reg_button(uid, st, short=True)]]))
         return home(uid)
     if aw in ("club_name", "club_rename"):
         t = text.strip()
@@ -1642,7 +1663,8 @@ def handle_cb(cq):
         if not c:
             return answer(cq, "Ты не капитан клуба.", True)
         res = [register(u, p[1], quiet=False) for u in c["members"]]
-        return answer(cq, f"Записано из клуба: {sum(r.startswith('✅') for r in res)}", True)
+        n_ok, n_pend = sum(r.startswith('✅') for r in res), sum(r.startswith('📝') for r in res)
+        return answer(cq, f"Записано из клуба: {n_ok}" + (f", заявок организаторам: {n_pend}" if n_pend else ""), True)
     if k == "tz":
         st = S["stages"].get(p[1])
         answer(cq)
@@ -2090,7 +2112,9 @@ def app_api(req):
     if req.get("act") == "me":
         p = pilot(uid)
         mine = {sid: st["fans"][str(uid)] for sid, st in S["stages"].items() if str(uid) in st.get("fans", {})}
-        return {"ok": True, "org": is_org(uid), "pid": p["pid"] if p else None, "fans": mine}
+        regs = {sid: "in" if uid in st["reg"] else "pend" for sid, st in S["stages"].items()
+                if uid in st["reg"] or uid in st.get("pend", [])}
+        return {"ok": True, "org": is_org(uid), "pid": p["pid"] if p else None, "fans": mine, "reg": regs}
     if req.get("act") == "fan":
         return fan_vote(uid, req.get("sid"), req.get("mid"))
     if not is_org(uid):

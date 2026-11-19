@@ -161,6 +161,15 @@ function openTg(url) {
   if (TG && TG.openTelegramLink) { try { TG.openTelegramLink(url); return; } catch (e) {} }
   window.open(url, '_blank');
 }
+// Кнопка записи: записан / заявка на рассмотрении / записаться
+function regBlock(st) {
+  if (st.state !== 'reg') return '';
+  const my = (ME.reg || {})[st.id];
+  if (my === 'in') return '<div class="note" style="margin-top:10px">✅ Ты записан на этот этап</div>';
+  if (my === 'pend') return '<div class="note" style="margin-top:10px">⏳ Заявка у организаторов — бот напишет, когда её рассмотрят</div>';
+  if (st.closed) return '<div class="note" style="margin-top:10px">🔒 Регистрация закрыта — скоро сетка</div>';
+  return link(st.appr ? '✋ Подать заявку на этап' : '✋ Записаться на этап', 'rg_' + st.id) + '<div class="note" style="margin-top:6px">Соло или в составе клуба — одна кнопка для всех</div>';
+}
 const link = (text, arg, cls = 'btn') => `<a class="${cls}" href="#" onclick="openTg('${tme(arg)}');return false">${text}</a>`;
 
 async function load() {
@@ -216,7 +225,7 @@ function renderHome() {
       <h3 style="margin:4px 0">${esc(st.title)} ${badge(st)}</h3>
       <div class="note">${st.date ? esc(st.date) + ' · ' : ''}топ-${st.size} · ${st.de ? 'с лузер-сеткой' : 'на вылет'} · записано ${st.reg.length}</div>
       <a class="btn ${st.state === 'reg' ? 'ghost' : ''}" href="#" onclick="openStage('${st.id}');return false">${st.state === 'run' || st.state === 'done' ? '🏁 Сетка этапа' : 'Подробнее об этапе'}</a>
-      ${st.state === 'reg' && !st.closed ? link('✋ Записаться на этап', 'rg_' + st.id) : ''}${st.state === 'reg' && st.closed ? '<div class="note" style="margin-top:8px">🔒 Регистрация закрыта — скоро сетка.</div>' : ''}</div>`;
+      ${regBlock(st)}</div>`;
   } else h += `<div class="card"><div class="note">Этапов пока нет — следи за новостями.</div></div>`;
   if (D.pilots.some(p => p.pts)) h += `<h3>Личный зачёт</h3><div class="card">${D.pilots.slice(0, 5).map((p, i) => pilotLine(p, i, p.pts, p.club)).join('')}
     <a class="btn ghost" href="#" onclick="show('pilots');return false">Вся таблица</a></div>`;
@@ -251,7 +260,7 @@ function renderStage() {
       <div>Судей: ${st.jn}${st.judges.length ? ' — ' + st.judges.map(esc).join(', ') : ''}</div>
       <div>Время на заезд: ${st.dl ? st.dl + ' мин' : 'без ограничения'} · протесты: ${st.pw ? 'в течение ' + st.pw + ' мин после решения' : 'нет'}</div>
       ${st.appr ? '<div>Заявки одобряет организатор</div>' : ''}${st.test ? '<div>🧪 Тестовый этап — очки не начисляются</div>' : ''}
-      ${st.state === 'reg' && !st.closed ? link(st.appr ? '✋ Подать заявку' : '✋ Записаться', 'rg_' + st.id) : ''}${st.state === 'reg' && st.closed ? '<div>🔒 Регистрация закрыта</div>' : ''}</div>
+      ${regBlock(st)}</div>
       ${st.sched ? `<h3>🕒 Расписание</h3><div class="card text">${esc(st.sched)}</div>` : ''}
       ${st.dsq.length ? `<h3>⛔ Дисквалифицированы</h3><div class="card">${st.dsq.map(([n, w]) => `<div class="row"><div class="nm">${esc(n)}<small>${esc(w)}</small></div></div>`).join('')}</div>` : ''}`;
     ['q', 'b'].forEach(k => { const tz = st.tz[k]; if (!tz) return;
