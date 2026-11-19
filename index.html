@@ -194,7 +194,7 @@ function show(name) {
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.t === name || (name === 'stage' && b.dataset.t === 'stages')));
   window.scrollTo(0, 0);
 }
-const badge = st => `<span class="badge ${st.state}">${STATE[st.state]}</span>${st.test ? ' <span class="badge test">тест</span>' : ''}`;
+const badge = st => `<span class="badge ${st.state}">${st.state === 'reg' && st.closed ? 'запись закрыта' : STATE[st.state]}</span>${st.test ? ' <span class="badge test">тест</span>' : ''}`;
 const pn = pl => pl ? (pl.num ? '#' + pl.num + ' ' : '') + pl.nick : '';
 const pilotLine = (p, i, pts, sub) => `<div class="row"><span class="pl ${i < 3 ? 'p' + (i + 1) : ''}">${i + 1}</span>
   <div class="nm">${esc(p.nick || p.name)}${sub ? `<small>${esc(sub)}</small>` : ''}</div><span class="pt">${pts}</span></div>`;
@@ -216,7 +216,7 @@ function renderHome() {
       <h3 style="margin:4px 0">${esc(st.title)} ${badge(st)}</h3>
       <div class="note">${st.date ? esc(st.date) + ' · ' : ''}топ-${st.size} · ${st.de ? 'с лузер-сеткой' : 'на вылет'} · записано ${st.reg.length}</div>
       <a class="btn ${st.state === 'reg' ? 'ghost' : ''}" href="#" onclick="openStage('${st.id}');return false">${st.state === 'run' || st.state === 'done' ? '🏁 Сетка этапа' : 'Подробнее об этапе'}</a>
-      ${st.state === 'reg' ? link('✋ Записаться на этап', 'rg_' + st.id) : ''}</div>`;
+      ${st.state === 'reg' && !st.closed ? link('✋ Записаться на этап', 'rg_' + st.id) : ''}${st.state === 'reg' && st.closed ? '<div class="note" style="margin-top:8px">🔒 Регистрация закрыта — скоро сетка.</div>' : ''}</div>`;
   } else h += `<div class="card"><div class="note">Этапов пока нет — следи за новостями.</div></div>`;
   if (D.pilots.some(p => p.pts)) h += `<h3>Личный зачёт</h3><div class="card">${D.pilots.slice(0, 5).map((p, i) => pilotLine(p, i, p.pts, p.club)).join('')}
     <a class="btn ghost" href="#" onclick="show('pilots');return false">Вся таблица</a></div>`;
@@ -251,7 +251,7 @@ function renderStage() {
       <div>Судей: ${st.jn}${st.judges.length ? ' — ' + st.judges.map(esc).join(', ') : ''}</div>
       <div>Время на заезд: ${st.dl ? st.dl + ' мин' : 'без ограничения'} · протесты: ${st.pw ? 'в течение ' + st.pw + ' мин после решения' : 'нет'}</div>
       ${st.appr ? '<div>Заявки одобряет организатор</div>' : ''}${st.test ? '<div>🧪 Тестовый этап — очки не начисляются</div>' : ''}
-      ${st.state === 'reg' ? link(st.appr ? '✋ Подать заявку' : '✋ Записаться', 'rg_' + st.id) : ''}</div>
+      ${st.state === 'reg' && !st.closed ? link(st.appr ? '✋ Подать заявку' : '✋ Записаться', 'rg_' + st.id) : ''}${st.state === 'reg' && st.closed ? '<div>🔒 Регистрация закрыта</div>' : ''}</div>
       ${st.sched ? `<h3>🕒 Расписание</h3><div class="card text">${esc(st.sched)}</div>` : ''}
       ${st.dsq.length ? `<h3>⛔ Дисквалифицированы</h3><div class="card">${st.dsq.map(([n, w]) => `<div class="row"><div class="nm">${esc(n)}<small>${esc(w)}</small></div></div>`).join('')}</div>` : ''}`;
     ['q', 'b'].forEach(k => { const tz = st.tz[k]; if (!tz) return;

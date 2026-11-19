@@ -396,7 +396,7 @@ def stage_desc(st):
           f"Дедлайн на пару: {str(st.get('dl', 0)) + ' мин' if st.get('dl') else 'нет'} · " \
           f"протесты: {'в течение ' + str(st.get('pw', 0)) + ' мин' if st.get('pw') else 'нет'}"
     return (f"{'🧪' if st.get('test') else '🏁'} {st['title']}" + (" (тест, без очков)" if st.get("test") else "")
-            + (f" · {st['date']}" if st.get("date") else "") + f"\n{fmt}\nСтатус: {STATE_RU[st['state']]}"
+            + (f" · {st['date']}" if st.get("date") else "") + f"\n{fmt}\nСтатус: {STATE_RU[st['state']]}" + (" (закрыта)" if st["state"] == "reg" and st.get("closed") else "")
             + f"\nЗаписано: {len(st['reg'])}" + (f"\nСудьи: {', '.join(nick(j) for j in st['judges'])}" if st["judges"] else
                                                    "\nСудьи: не назначены"))
 
@@ -1042,7 +1042,7 @@ def public_data():
         stages.append({"id": st["id"], "n": st["n"], "title": st["title"], "date": st.get("date", ""), "state": st["state"],
                        "size": st["size"], "de": st["de"], "qual": st["qual"], "jn": st["jn"], "dl": st.get("dl", 0),
                        "pw": st.get("pw", 0), "season": st.get("season", 1), "test": st.get("test", False),
-                       "appr": st.get("appr", False), "sched": st.get("sched", ""),
+                       "appr": st.get("appr", False), "closed": bool(st.get("closed")), "sched": st.get("sched", ""),
                        "dsq": [[nick(int(u)), why] for u, why in st.get("dsq", {}).items()],
                        "fans": {mid: sum(1 for v in st.get("fans", {}).values() if v == mid) for mid in set(st.get("fans", {}).values())},
                        "fan_open": fan_open(st), "fan_until": st.get("done_t", 0) + FAN_HOURS * 3600 if st.get("done_t") else None,
@@ -1114,14 +1114,15 @@ def stages_menu(uid):
         return
     rows = []
     for st in sts[-8:]:
-        if st["state"] == "reg":
+        if st["state"] == "reg" and (uid in st["reg"] or not st.get("closed")):
             rows.append([b(("🚪 Выйти: " if uid in st["reg"] else "✋ Участвую: ") + st["title"],
                            f"{'ul' if uid in st['reg'] else 'rg'}:{st['id']}")])
         if st["tz"]:
             rows.append([b(f"📋 ТЗ · {st['title']}", f"tzm:{st['id']}")])
     c = next((x for x in S["clubs"].values() if x["leader"] == uid), None)
     if c:
-        rows += [[b(f"👥 Записать весь клуб: {st['title']}", f"rgc:{st['id']}")] for st in sts if st["state"] == "reg"]
+        rows += [[b(f"👥 Записать весь клуб: {st['title']}", f"rgc:{st['id']}")] for st in sts
+                 if st["state"] == "reg" and not st.get("closed")]
     send(uid, "🏁 Этапы:\n\n" + "\n\n".join(stage_desc(st) for st in sts[-4:]), kb(rows + [app_row()]))
 
 
@@ -1129,7 +1130,7 @@ def register(uid, sid, quiet=False):
     st = S["stages"].get(sid)
     if not pilot(uid):
         return "Сначала стань пилотом: /menu → «Стать пилотом»."
-    if not st or st["state"] != "reg":
+    if not st or st["state"] != "reg" or (st.get("closed") and quiet != "approved"):
         return "Регистрация на этот этап закрыта."
     if str(uid) in S["banned"]:
         return f"Ты отстранён от чемпионата: {S['banned'][str(uid)]}"
@@ -1241,7 +1242,9 @@ def stage_menu(uid, st):
     if s == "draft":
         rows.append([b("▶️ Открыть регистрацию", f"sa:{sid}:open"), b("🗑 Удалить", f"sa:{sid}:del")])
     if s == "reg":
-        rows.append([b(f"👥 Участники ({len(st['reg'])})", f"sa:{sid}:list")])
+        rows.append([b(f"👥 Участники ({len(st['reg'])})", f"sa:{sid}:list"),
+                     b("🔓 Открыть регистрацию снова", f"sa:{sid}:reopen") if st.get("closed") else
+                     b("🔒 Закрыть регистрацию", f"sa:{sid}:close")])
         rows.append([b("⏱ Начать квалификацию", f"sa:{sid}:qual")] if st["qual"] else
                     [b("🏗 Сетка по очкам сезона", f"sa:{sid}:bp"), b("🎲 Сетка жребием", f"sa:{sid}:br")])
     if s == "qual":
@@ -1976,6 +1979,18 @@ def stage_action(cq, uid, st, act, extra):
                  + f"\nТоп-{st['size']}, {'с квалификацией' if st['qual'] else 'без квалификации'}.",
                  kb([[b("✋ Участвую", f"rg:{st['id']}")]]))
         answer(cq, "Регистрация открыта")
+        return stage_menu(uid, st)
+    if act == "close" and s == "reg":
+        st["closed"] = True
+        log(uid, f"{st['title']}: регистрация закрыта досрочно")
+        for x in st["reg"]:
+            send(x, f"🔒 Регистрация на {st['title']} закрыта. Ты в списке — жди сетку.")
+        answer(cq, "Регистрация закрыта")
+        return stage_menu(uid, st)
+    if act == "reopen" and s == "reg":
+        st["closed"] = False
+        log(uid, f"{st['title']}: регистрация открыта снова")
+        answer(cq, "Регистрация снова открыта")
         return stage_menu(uid, st)
     if act == "pend":
         answer(cq)
