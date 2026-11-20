@@ -158,15 +158,101 @@ details.reg[open] summary::after{content:'–'}
 .regbody th{background:var(--card2)}
 .stat3 b{display:block;font-family:var(--race);font-weight:400;font-size:20px}
 </style>
+<style>
+/* ---------- оформление: строгий гоночный стиль, как табло таймингов ---------- */
+:root{--bg:#0b0b0d;--card:rgba(20,20,23,.9);--card2:#1b1b20;--line:#26262c;--text:#ededf0;--muted:#8a8a95;--accent:#e8452c;--accent-soft:#2a1410}
+html{background:#0b0b0d}
+body{background:transparent;font-variant-numeric:tabular-nums}
+#bgfx{position:fixed;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;display:block}
+body::after{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.04;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+main{position:relative;z-index:1}
+header{background:#0b0b0d;border-bottom:1px solid var(--line)}
+header .logo{border-radius:5px;background:var(--accent);letter-spacing:.02em}
+header>div:nth-child(2){min-width:0;flex:1}
+header .t{text-transform:uppercase;letter-spacing:.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header .hb{display:flex;gap:6px;margin-left:auto}
+header .hb button{margin-left:0;width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;
+  border-radius:6px;border:1px solid var(--line);background:transparent;color:var(--muted)}
+header .hb button svg{width:15px;height:15px}
+header .hb button:active{background:#18181c}
+header .hb button.spin svg{animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.lv{display:inline-block;width:7px;height:7px;background:var(--accent);margin-right:6px;vertical-align:0;animation:blink 1.2s steps(2,start) infinite}
+@keyframes blink{to{visibility:hidden}}
+nav{background:#0b0b0d;border-top:1px solid var(--line)}
+nav button{position:relative}
+nav button::before{content:'';position:absolute;top:-1px;left:30%;right:30%;height:2px;background:var(--accent);transform:scaleX(0);transition:transform .2s}
+nav button.on::before{transform:scaleX(1)}
+h2{font-size:21px;text-transform:uppercase;letter-spacing:.02em}
+h2::after{content:'';display:block;width:28px;height:3px;background:var(--accent);margin-top:8px}
+h3{font-size:13px;text-transform:uppercase;letter-spacing:.07em;color:#c9c9d1;margin:22px 0 8px}
+.card,.me,.pcard,details.reg,.bwrap{border-radius:8px;background:var(--card);border-color:var(--line)}
+.card[onclick]:active{background:#1a1a1f}
+.card.live{border-left:3px solid var(--accent)}
+.lbl{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.btn{border-radius:6px;font-weight:600}
+.btn:not(.ghost){background:var(--accent)}
+.btn:not(.ghost):active{background:#c93a23}
+.btn.ghost{background:transparent;border-color:#30303a}
+.btn.ghost:active{background:#18181c}
+.chip{border-radius:6px;background:transparent}
+.chip.on{background:transparent;border-color:#45454f;color:var(--text);box-shadow:inset 0 -2px 0 var(--accent)}
+.badge{border-radius:3px;font-size:10px;letter-spacing:.07em;text-transform:uppercase;font-weight:700;padding:3px 7px}
+.badge.run,.badge.qual{background:var(--accent);color:#fff}
+.hero{padding:0;overflow:hidden;background:rgba(11,11,13,.62);border-color:rgba(255,255,255,.1)}
+.hero::after{display:none}
+.hero .flag{height:10px;background:repeating-conic-gradient(#e6e6ea 0 25%,#141417 0 50%) 0 0/10px 10px}
+.hero .in{padding:14px 14px 16px}
+.hero .big{font-size:23px;text-transform:uppercase;letter-spacing:.01em}
+.livetag{display:flex;align-items:center;gap:10px;margin-top:14px;font-size:13px;cursor:pointer}
+.livetag b{background:var(--accent);color:#fff;font-size:10px;letter-spacing:.12em;padding:3px 7px;border-radius:2px}
+.me .num{width:54px;height:42px;border-radius:4px;background:#ededf0;color:#0b0b0d;font-size:18px;border-top:4px solid var(--accent)}
+.task{border-radius:6px;background:var(--card2)}
+.task .ic{width:34px;height:34px;border:1px solid #30303a;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#c9c9d1}
+.task .ic svg{width:18px;height:18px}
+.task .ic b{font-family:var(--race);font-weight:400;font-size:12px}
+.task.hot{border-color:var(--line);border-left:3px solid var(--accent);background:#1c1412}
+.task.hot .ic{border-color:var(--accent);color:var(--accent)}
+.row .pl{width:28px;height:28px;line-height:28px;border-radius:4px;flex:none;background:#1c1c21}
+.row .pl.p1{background:#d4a72c;color:#141005}.row .pl.p2{background:#a7afb8;color:#121417}.row .pl.p3{background:#b06b35;color:#160b03}
+.prog{height:6px;border-radius:2px;background:#1f1f25}
+.prog i{width:0;border-radius:2px;background:var(--accent);transition:width .8s ease-out}
+.prog.live i{background-color:var(--accent);background-image:repeating-linear-gradient(-45deg,rgba(0,0,0,.2) 0 6px,transparent 6px 12px);
+  background-size:17px 17px;animation:barber 1.2s linear infinite}
+@keyframes barber{to{background-position:17px 0}}
+.split{height:6px;border-radius:2px}.split i{width:0;transition:width .8s ease-out}
+.pills span{border-radius:4px}
+.pickrow button{border-radius:6px}
+.mc{border-radius:5px;background:#1c1c21}
+.sheet{background:#121215;border-radius:12px 12px 0 0}
+.sheet-bg{background:rgba(0,0,0,.6)}
+.sheet-bg.open .sheet{animation:up .22s ease-out}
+@keyframes up{from{transform:translateY(24px)}}
+.sheet .vs div,.stat3 div,.calc input,.regsearch,select,.cres{border-radius:6px}
+section.enter{animation:fadein .18s ease-out}
+@keyframes fadein{from{opacity:0}}
+.sk{border-radius:8px;margin-bottom:12px;background:linear-gradient(100deg,#151518 30%,#1d1d22 50%,#151518 70%);
+  background-size:300% 100%;animation:skel 1.3s linear infinite}
+@keyframes skel{from{background-position:100% 0}to{background-position:-200% 0}}
+.medal{display:inline-block;min-width:16px;padding:0 4px;border-radius:3px;font-size:11px;font-weight:700;margin-right:5px;text-align:center}
+.medal.m1{background:#d4a72c;color:#141005}.medal.m2{background:#a7afb8;color:#121417}.medal.m3{background:#b06b35;color:#160b03}
+.tagx{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.06em;padding:1px 5px;border-radius:3px;margin-left:5px;vertical-align:1px}
+.tagx.ban{background:#3a1410;color:#ff8a75}.tagx.fan{background:#2b2512;color:var(--gold)}
+@media (prefers-reduced-motion: reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+</style>
 </head>
 <body>
+<canvas id="bgfx" aria-hidden="true"></canvas>
 <header>
   <div class="logo">KRC</div>
-  <div><div class="t">Khinkali Racing Championship</div><div class="s" id="status">загрузка…</div></div>
-  <button onclick="load()" aria-label="Обновить">↻</button>
+  <div><div class="t">Khinkali Racing</div><div class="s"><i class="lv" id="lvdot" hidden></i><span id="status">загрузка…</span></div></div>
+  <div class="hb"><button id="fxbtn" onclick="toggleFx()" aria-label="Живой фон: пауза или запуск" title="Живой фон"></button>
+    <button id="rfbtn" onclick="load()" aria-label="Обновить"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v5h-5"/></svg></button></div>
 </header>
 <main>
-  <section id="home"></section>
+  <section id="home"><div class="sk" style="height:96px"></div><div class="sk" style="height:150px"></div>
+    <div class="sk" style="height:180px"></div><div class="sk" style="height:120px"></div></section>
   <section id="stages"></section>
   <section id="stage"></section>
   <section id="pilots"></section>
@@ -187,8 +273,537 @@ details.reg[open] summary::after{content:'–'}
 const Q = new URLSearchParams(location.search);
 const BOT_URL = (Q.get('api') || 'https://krc-bot.onrender.com').replace(/\/$/, '');
 const TG = window.Telegram && Telegram.WebApp && Telegram.WebApp.initData ? Telegram.WebApp : null;
-if (TG) { try { TG.ready(); TG.expand(); TG.setHeaderColor('#0d0d10'); TG.setBackgroundColor('#0d0d10'); } catch (e) {} }
+if (TG) { try { TG.ready(); TG.expand(); TG.setHeaderColor('#0b0b0e'); TG.setBackgroundColor('#0b0b0e'); } catch (e) {} }
 let D = null, ME = { org: false }, cur = 'home', stageId = null, stageTab = 'bracket', bView = 'full';
+const REDUCED = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+// Отклик вибрацией в Телеграме
+function hap(k) {
+  try {
+    const h = TG && TG.HapticFeedback; if (!h) return;
+    if (k === 'sel') h.selectionChanged(); else if (k === 'ok') h.notificationOccurred('success');
+    else if (k === 'err') h.notificationOccurred('error'); else h.impactOccurred(k || 'light');
+  } catch (e) {}
+}
+// ---------- Живой фон: ночная трасса сверху, тандем дрифт-машин ----------
+// Трасса большая и на каждом запуске своя, камера видит её кусок — машины проезжают через кадр время от времени.
+// Угол кузова качается с инерцией и перелетает на перекладке, передние колёса
+// в контрруле, из-под задних — объёмный дым и следы резины, фары светят на асфальт, на перекладке хлопает выхлоп.
+const BG = (() => {
+  const cv = document.getElementById('bgfx'), ctx = cv.getContext('2d');
+  const lowCPU = (navigator.hardwareConcurrency || 4) <= 4;
+  let off = REDUCED;  // при системном «уменьшить движение» фон по умолчанию стоит, кнопкой его можно запустить
+  try { const v = localStorage.getItem('krc_fx'); if (v === 'off') off = true; else if (v === 'on') off = false; } catch (e) {}
+  let W = 0, H = 0, dpr = 1, raf = 0, last = 0, rz = 0, fn = 0, T = 0, heat = .45, heatT = .45, G = null;
+  const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d')]; };
+  const [track, tc] = mk(1, 1), [marks, mc] = mk(1, 1);
+  const running = () => !off;
+  const TAU = Math.PI * 2;
+
+  // ---------- спрайты: машины, тень, свет, дым ----------
+  const SL = 320, SW = 150, SM = 22;  // длина и ширина машины в спрайте, поля под зеркала и антикрыло
+  function carSprite(paint, dark, livery) {
+    const [c, g] = mk(SL + SM * 2, SW + SM * 2);
+    g.translate(SM + SL / 2, SM + SW / 2);
+    const L = SL, hw = SW / 2;
+    const body = () => {
+      g.beginPath();
+      g.moveTo(-L * .5, -hw * .70);
+      g.quadraticCurveTo(-L * .5, -hw * .96, -L * .44, -hw * .98);
+      g.lineTo(-L * .30, -hw);
+      g.quadraticCurveTo(-L * .13, -hw * .99, -L * .02, -hw * .92);
+      g.quadraticCurveTo(L * .14, -hw * .99, L * .30, -hw);
+      g.lineTo(L * .41, -hw * .96);
+      g.quadraticCurveTo(L * .5, -hw * .88, L * .51, -hw * .52);
+      g.quadraticCurveTo(L * .535, 0, L * .51, hw * .52);
+      g.quadraticCurveTo(L * .5, hw * .88, L * .41, hw * .96);
+      g.lineTo(L * .30, hw);
+      g.quadraticCurveTo(L * .14, hw * .99, -L * .02, hw * .92);
+      g.quadraticCurveTo(-L * .13, hw * .99, -L * .30, hw);
+      g.lineTo(-L * .44, hw * .98);
+      g.quadraticCurveTo(-L * .5, hw * .96, -L * .5, hw * .70);
+      g.quadraticCurveTo(-L * .515, 0, -L * .5, -hw * .70);
+      g.closePath();
+    };
+    const poly = (pts, fill) => { g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath(); g.fillStyle = fill; g.fill(); };
+    const rr = (x, y, w, h, r, fill) => { g.beginPath(); if (g.roundRect) g.roundRect(x, y, w, h, r); else g.rect(x, y, w, h); g.fillStyle = fill; g.fill(); };
+    // зеркала (под кузовом, чтобы торчали по бокам)
+    [-1, 1].forEach(sd => { g.beginPath(); g.ellipse(L * .075, sd * hw * 1.03, L * .032, hw * .1, sd * .35, 0, TAU); g.fillStyle = dark; g.fill(); });
+    // кузов и объём краски
+    body(); g.fillStyle = paint; g.fill();
+    g.save(); body(); g.clip();
+    let gr = g.createLinearGradient(0, -hw, 0, hw);
+    gr.addColorStop(0, 'rgba(0,0,0,.5)'); gr.addColorStop(.16, 'rgba(0,0,0,0)'); gr.addColorStop(.45, 'rgba(255,255,255,.10)');
+    gr.addColorStop(.55, 'rgba(255,255,255,.10)'); gr.addColorStop(.84, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,.5)');
+    g.fillStyle = gr; g.fillRect(-L, -hw * 2, L * 2, hw * 4);
+    gr = g.createLinearGradient(-L / 2, 0, L / 2, 0);
+    gr.addColorStop(0, 'rgba(0,0,0,.28)'); gr.addColorStop(.1, 'rgba(0,0,0,0)'); gr.addColorStop(.9, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,.22)');
+    g.fillStyle = gr; g.fillRect(-L, -hw * 2, L * 2, hw * 4);
+    // ливрея
+    if (livery === 'stripes') {
+      g.fillStyle = '#f2f2f2'; g.fillRect(-L, -hw * .24, L * 2, hw * .14); g.fillRect(-L, hw * .10, L * 2, hw * .14);
+      g.fillStyle = '#141414'; g.fillRect(-L, -hw * .27, L * 2, hw * .03); g.fillRect(-L, hw * .24, L * 2, hw * .03);
+    } else {
+      g.fillStyle = '#d42a1e'; poly([[-L * .5, -hw * .62], [L * .2, -hw * .62], [L * .34, -hw * .9], [L * .34, -hw], [-L * .5, -hw]], '#d42a1e');
+      poly([[-L * .5, hw * .62], [L * .2, hw * .62], [L * .34, hw * .9], [L * .34, hw], [-L * .5, hw]], '#d42a1e');
+      g.fillStyle = '#141414'; g.fillRect(-L * .5, -hw * .66, L * .7, hw * .04); g.fillRect(-L * .5, hw * .62, L * .7, hw * .04);
+    }
+    // блик на капоте и крыше
+    gr = g.createRadialGradient(L * .28, -hw * .25, 2, L * .28, -hw * .25, L * .22);
+    gr.addColorStop(0, 'rgba(255,255,255,.22)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(-L, -hw * 2, L * 2, hw * 4);
+    g.restore();
+    // жабры на капоте, линия багажника
+    [-1, 1].forEach(sd => { rr(L * .23, sd > 0 ? hw * .16 : -hw * .32, L * .1, hw * .16, 4, 'rgba(0,0,0,.55)');
+      for (let i = 1; i < 4; i++) { g.fillStyle = 'rgba(255,255,255,.08)'; g.fillRect(L * .23 + i * L * .025, sd > 0 ? hw * .17 : -hw * .31, 1.5, hw * .14); } });
+    g.strokeStyle = 'rgba(0,0,0,.35)'; g.lineWidth = 1.5;
+    g.beginPath(); g.moveTo(-L * .35, -hw * .8); g.quadraticCurveTo(-L * .37, 0, -L * .35, hw * .8); g.stroke();
+    // стёкла: лобовое, заднее, боковые
+    gr = g.createLinearGradient(L * .03, 0, L * .18, 0);
+    gr.addColorStop(0, '#0b0e13'); gr.addColorStop(1, '#222a35');
+    poly([[L * .175, -hw * .80], [L * .175, hw * .80], [L * .035, hw * .70], [L * .035, -hw * .70]], gr);
+    g.save(); g.beginPath(); g.moveTo(L * .175, -hw * .8); g.lineTo(L * .175, hw * .8); g.lineTo(L * .035, hw * .7); g.lineTo(L * .035, -hw * .7); g.clip();
+    g.fillStyle = 'rgba(255,255,255,.13)'; g.beginPath(); g.moveTo(L * .16, -hw * .8); g.lineTo(L * .12, -hw * .8); g.lineTo(L * .05, hw * .2); g.lineTo(L * .09, hw * .2); g.fill(); g.restore();
+    gr = g.createLinearGradient(-L * .31, 0, -L * .2, 0);
+    gr.addColorStop(0, '#1d242e'); gr.addColorStop(1, '#090c10');
+    poly([[-L * .205, -hw * .70], [-L * .205, hw * .70], [-L * .31, hw * .74], [-L * .31, -hw * .74]], gr);
+    [-1, 1].forEach(sd => poly([[L * .03, sd * hw * .72], [L * .14, sd * hw * .84], [-L * .2, sd * hw * .86], [-L * .2, sd * hw * .72]], 'rgba(8,10,14,.9)'));
+    // крыша: чуть светлее, номер на крыше
+    gr = g.createRadialGradient(-L * .08, -hw * .2, 2, -L * .08, 0, hw * .8);
+    gr.addColorStop(0, 'rgba(255,255,255,.14)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    rr(-L * .2, -hw * .7, L * .235, hw * 1.4, 10, gr);
+    if (livery !== 'stripes') {
+      g.beginPath(); g.arc(-L * .085, 0, hw * .4, 0, TAU); g.fillStyle = '#f4f4f4'; g.fill();
+      g.lineWidth = 4; g.strokeStyle = '#141414'; g.stroke();
+      g.save(); g.rotate(Math.PI / 2); g.fillStyle = '#141414'; g.font = `bold ${Math.round(hw * .5)}px Arial, sans-serif`;
+      g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('77', 0, L * .085 + 1); g.restore();
+    }
+    // фары и фонари
+    [-1, 1].forEach(sd => {
+      g.save(); g.translate(L * .465, sd * hw * .64); g.rotate(sd * -.32);
+      rr(-L * .045, -hw * .14, L * .085, hw * .28, 6, '#1a1c20');
+      rr(-L * .035, -hw * .1, L * .065, hw * .2, 5, '#e9eef5'); g.restore();
+      rr(-L * .508, sd > 0 ? hw * .42 : -hw * .82, L * .035, hw * .4, 4, '#6e0c07');
+      rr(-L * .503, sd > 0 ? hw * .48 : -hw * .76, L * .02, hw * .28, 3, '#c8261c');
+    });
+    // выхлоп и антикрыло
+    g.beginPath(); g.arc(-L * .51, hw * .34, hw * .07, 0, TAU); g.fillStyle = '#2a2a2a'; g.fill();
+    g.beginPath(); g.arc(-L * .51, hw * .34, hw * .04, 0, TAU); g.fillStyle = '#050505'; g.fill();
+    rr(-L * .475, -hw * 1.07, L * .05, hw * 2.14, 3, '#131315');
+    g.fillStyle = 'rgba(255,255,255,.12)'; g.fillRect(-L * .44, -hw * 1.05, 2, hw * 2.1);
+    [-1, 1].forEach(sd => rr(-L * .5, sd * hw * 1.07 - (sd > 0 ? 0 : hw * .06), L * .1, hw * .06, 2, '#0d0d0f'));
+    // контур
+    g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,.6)'; body(); g.stroke();
+    return c;
+  }
+  function radial(size, stops) {
+    const [c, g] = mk(size, size), r = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    stops.forEach(([o, col]) => r.addColorStop(o, col)); g.fillStyle = r; g.fillRect(0, 0, size, size); return c;
+  }
+  const RED = radial(64, [[0, 'rgba(255,60,40,.95)'], [.35, 'rgba(255,30,20,.45)'], [1, 'rgba(255,0,0,0)']]);
+  const WHITE = radial(64, [[0, 'rgba(255,250,235,.95)'], [.3, 'rgba(255,245,225,.35)'], [1, 'rgba(255,245,225,0)']]);
+  const FIRE = radial(64, [[0, 'rgba(255,255,220,1)'], [.25, 'rgba(255,190,70,.9)'], [.6, 'rgba(255,90,20,.45)'], [1, 'rgba(255,40,0,0)']]);
+  const SHADOW = (() => { const [c, g] = mk(200, 100); g.translate(100, 50); g.scale(1, .5);
+    const r = g.createRadialGradient(0, 0, 10, 0, 0, 98); r.addColorStop(0, 'rgba(0,0,0,.75)'); r.addColorStop(.7, 'rgba(0,0,0,.45)'); r.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = r; g.beginPath(); g.arc(0, 0, 98, 0, TAU); g.fill(); return c; })();
+  const BEAM = (() => { const [c, g] = mk(256, 160); const r = g.createRadialGradient(0, 80, 0, 0, 80, 256);
+    r.addColorStop(0, 'rgba(255,244,222,.9)'); r.addColorStop(.55, 'rgba(255,244,222,.3)'); r.addColorStop(1, 'rgba(255,244,222,0)');
+    g.fillStyle = r; g.beginPath(); g.moveTo(0, 70); g.lineTo(256, 0); g.lineTo(256, 160); g.lineTo(0, 90); g.closePath(); g.fill(); return c; })();
+  const SMOKE = [0, 1, 2].map(seed => { // неровные клубы: несколько пятен в одном спрайте
+    const [c, g] = mk(128, 128); let x = seed * 9301 + 49297;
+    const rnd = () => (x = (x * 9301 + 49297) % 233280) / 233280;
+    for (let i = 0; i < 11; i++) {
+      const px = 64 + (rnd() - .5) * 52, py = 64 + (rnd() - .5) * 52, pr = 18 + rnd() * 26;
+      const r = g.createRadialGradient(px, py, 0, px, py, pr);
+      r.addColorStop(0, 'rgba(214,214,220,.42)'); r.addColorStop(1, 'rgba(205,205,214,0)');
+      g.fillStyle = r; g.fillRect(0, 0, 128, 128);
+    }
+    return c;
+  });
+  const NOISE = (() => { const [c, g] = mk(96, 96), im = g.createImageData(96, 96);
+    for (let i = 0; i < im.data.length; i += 4) { const v = Math.random() * 255; im.data[i] = im.data[i + 1] = im.data[i + 2] = v; im.data[i + 3] = 40; }
+    g.putImageData(im, 0, 0); return c; })();
+  const cars = [
+    { spr: carSprite('#c8261b', '#5a0f0a', 'stripes'), s: 0, v: 0, beta: 0, bdot: 0, yaw: 0, steer: 0, brake: 0, fire: 0, prev: null },
+    { spr: carSprite('#e6e6ea', '#9a9aa2', 'roundel'), s: 0, v: 0, beta: 0, bdot: 0, yaw: 0, steer: 0, brake: 0, fire: 0, prev: null }
+  ];
+  const puffs = [], MAXP = lowCPU ? 90 : 160;
+
+  // ---------- трасса: большая, больше экрана, на каждом запуске своя; повороты в обе стороны ----------
+  const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const SEED = (Math.random() * 2147483647) | 0;  // своя трасса при каждом открытии; при повороте экрана — та же
+  function rng(seed) {
+    let a = seed >>> 0;
+    return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  }
+  function resample(raw, step) {  // точки через равные расстояния
+    const out = [raw[0].slice()]; let need = step;
+    for (let i = 0; i < raw.length; i++) {
+      let ax = raw[i][0], ay = raw[i][1];
+      const b = raw[(i + 1) % raw.length];
+      let seg = Math.hypot(b[0] - ax, b[1] - ay);
+      while (seg >= need) { const f = need / seg; ax += (b[0] - ax) * f; ay += (b[1] - ay) * f; out.push([ax, ay]); seg -= need; need = step; }
+      need -= seg;
+    }
+    if (out.length > 2) out.pop();
+    return out;
+  }
+  function frameOf(pts) {  // касательные, левые нормали, кривизна со знаком
+    const N = pts.length, tan = [], nl = [], k = [];
+    for (let i = 0; i < N; i++) {
+      const a = pts[(i - 6 + N) % N], b = pts[i], c = pts[(i + 6) % N];
+      const dx = c[0] - a[0], dy = c[1] - a[1], l = Math.hypot(dx, dy) || 1;
+      tan.push([dx / l, dy / l]); nl.push([-dy / l, dx / l]);
+      const ax = b[0] - a[0], ay = b[1] - a[1], bx = c[0] - b[0], by = c[1] - b[1];
+      k.push(2 * (ax * by - ay * bx) / ((Math.hypot(ax, ay) * Math.hypot(bx, by) * l) || 1));
+    }
+    const ks = k.map((_, i) => { let s = 0; for (let j = -12; j <= 12; j++) s += k[(i + j + N) % N]; return s / 25; });
+    return { tan, nl, k: ks };
+  }
+  function buildPath() {
+    const r = rng(SEED), M = Math.max(W, H), L = G.L, tw = G.tw;
+    // апексы поворотов: самые крутые места, не ближе трёх длин машины друг к другу
+    const findApex = (C, F) => {
+      const N = C.length, apex = [];
+      for (let i = 0; i < N; i++) {
+        const a = Math.abs(F.k[i]);
+        if (a < 1 / (4.8 * L)) continue;
+        let best = true;
+        for (let j = -45; j <= 45 && best; j++) if (Math.abs(F.k[(i + j + N) % N]) > a) best = false;
+        if (best && !apex.some(x => Math.min(Math.abs(x.i - i), N - Math.abs(x.i - i)) * 2 < L * 3)) apex.push({ i, side: F.k[i] > 0 ? 1 : -1 });
+      }
+      return apex;
+    };
+    let C = null, F = null, apex = null;
+    for (let tries = 0; tries < 16 && !C; tries++) {
+      const R0 = M * (.56 + r() * .2), ang = r() * TAU, dist = R0 * (.5 + r() * .22);
+      const cx = W / 2 + Math.cos(ang) * dist, cy = H / 2 + Math.sin(ang) * dist, ex = .88 + r() * .26, ey = .88 + r() * .26;
+      const hs = [2, 3, 4, 5].map(k => ({ k, a: k === 2 ? .1 + r() * .12 : k === 3 ? .06 + r() * .08 : .02 + r() * .045, ph: r() * TAU }));
+      const raw = [];
+      for (let i = 0; i < 900; i++) {
+        const th = i / 900 * TAU; let rr = 1;
+        hs.forEach(h => { rr += h.a * Math.cos(h.k * th + h.ph); });
+        raw.push([cx + Math.cos(th) * R0 * rr * ex, cy + Math.sin(th) * R0 * rr * ey]);
+      }
+      const pts = resample(raw, 2);
+      // в кадре должна быть заметная часть трассы
+      const inView = pts.filter(([x, y]) => x > -tw && x < W + tw && y > -tw && y < H + tw).length / pts.length;
+      const near = Math.min(...pts.filter((_, i) => i % 8 === 0).map(([x, y]) => Math.hypot(x - W / 2, y - H / 2)));
+      if (!(inView > .26 && near < Math.min(W, H) * .32) && tries < 15) continue;
+      // и хотя бы один настоящий поворот в кадре — чтобы занос было видно
+      const f = frameOf(pts), ap = findApex(pts, f);
+      const seen = ap.some(({ i }) => pts[i][0] > W * .1 && pts[i][0] < W * .9 && pts[i][1] > H * .12 && pts[i][1] < H * .88);
+      if (seen || tries === 15) { C = pts; F = f; apex = ap; }
+    }
+    const N = C.length;
+    // траектория: снаружи перед поворотом (хвост во внешней зоне), у апекса — внутрь, носом в TG, на выходе снова шире
+    const g = (x, s) => Math.exp(-((x / s) ** 2));
+    const off = new Array(N).fill(0);
+    apex.forEach(({ i, side }) => {
+      for (let j = -Math.round(L * 2.6); j <= Math.round(L * 2.6); j++) {
+        const ds = j * 2, q = (i + j + N) % N;
+        off[q] += side * (tw * .25 * g(ds, L * 1.05) - tw * .21 * g(ds + L * 1.9, L * 1.1) - tw * .15 * g(ds - L * 1.9, L * 1.2));
+      }
+    });
+    const pts = C.map((p, i) => { const o = Math.max(-tw * .3, Math.min(tw * .3, off[i])); return [p[0] + F.nl[i][0] * o, p[1] + F.nl[i][1] * o]; });
+    const P2 = frameOf(pts), s = [0];
+    for (let i = 1; i <= N; i++) { const a = pts[i - 1], b = pts[i % N]; s.push(s[i - 1] + Math.hypot(b[0] - a[0], b[1] - a[1])); }
+    // кривизна «с упреждением» для угла заноса
+    const kk = P2.k.map((_, i) => { let a = 0; for (let j = 0; j <= 30; j++) a += P2.k[(i + j) % N]; return a / 31; });
+    G.C = C; G.F = F; G.apex = apex;
+    G.P = { pts, s, S: s[N], tan: P2.tan, kk, N };
+  }
+  function at(sv) {
+    const P = G.P; sv = ((sv % P.S) + P.S) % P.S;
+    let lo = 0, hi = P.N;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (P.s[m] <= sv) lo = m; else hi = m; }
+    const j = (lo + 1) % P.N, f = (sv - P.s[lo]) / ((P.s[lo + 1] - P.s[lo]) || 1);
+    const a = P.pts[lo], b = P.pts[j], ta = P.tan[lo], tb = P.tan[j];
+    const tx = ta[0] + (tb[0] - ta[0]) * f, ty = ta[1] + (tb[1] - ta[1]) * f, tl = Math.hypot(tx, ty) || 1;
+    return { x: a[0] + (b[0] - a[0]) * f, y: a[1] + (b[1] - a[1]) * f, tx: tx / tl, ty: ty / tl, k: P.kk[lo] + (P.kk[j] - P.kk[lo]) * f };
+  }
+  function drawTrack() {
+    const C = G.C, F = G.F, N = C.length, tw = G.tw, L = G.L, dep = tw * .2;
+    tc.setTransform(dpr, 0, 0, dpr, 0, 0);
+    tc.fillStyle = '#0a0a0c'; tc.fillRect(0, 0, W, H);
+    const line = c => { c.beginPath(); C.forEach(([x, y], i) => i ? c.lineTo(x, y) : c.moveTo(x, y)); c.closePath(); c.lineJoin = 'round'; };
+    line(tc); tc.strokeStyle = 'rgba(255,255,255,.1)'; tc.lineWidth = tw + 4; tc.stroke();
+    // асфальт с зерном: полосу рисуем отдельно и накладываем шум только на неё
+    const [band, bc] = mk(track.width, track.height);
+    bc.setTransform(dpr, 0, 0, dpr, 0, 0); line(bc); bc.strokeStyle = '#16161a'; bc.lineWidth = tw; bc.stroke();
+    bc.globalCompositeOperation = 'source-atop'; bc.fillStyle = bc.createPattern(NOISE, 'repeat'); bc.globalAlpha = .24; bc.fillRect(0, 0, W, H);
+    tc.drawImage(band, 0, 0, W, H);
+    // разметка по регламенту у каждого поворота: внешняя клиппинг-зона на входе и зона касания (TG) на апексе
+    const id = j => ((j % N) + N) % N;
+    const pt = (j, o) => { const q = id(j); return [C[q][0] + F.nl[q][0] * o, C[q][1] + F.nl[q][1] * o]; };
+    const strip = (i0, i1, o0, o1) => {
+      const p = [];
+      for (let j = i0; j <= i1; j++) p.push(pt(j, o0));
+      for (let j = i1; j >= i0; j--) p.push(pt(j, o1));
+      tc.beginPath(); p.forEach(([x, y], i) => i ? tc.lineTo(x, y) : tc.moveTo(x, y)); tc.closePath();
+    };
+    const cone = (x, y, r) => {
+      tc.fillStyle = 'rgba(0,0,0,.5)'; tc.beginPath(); tc.ellipse(x + r * .5, y + r * .7, r * 1.15, r * .8, 0, 0, TAU); tc.fill();
+      tc.fillStyle = '#e8641e'; tc.beginPath(); tc.arc(x, y, r, 0, TAU); tc.fill();
+      tc.strokeStyle = 'rgba(255,255,255,.75)'; tc.lineWidth = r * .32; tc.beginPath(); tc.arc(x, y, r * .55, 0, TAU); tc.stroke();
+    };
+    const half = Math.round(L * .85 / 2);
+    G.apex.forEach(({ i, side }) => {
+      // внешняя клиппинг-зона — «зебра» у внешнего края на входе в поворот
+      const e = i - Math.round(L * 1.9 / 2), oA = -side * (tw / 2 - 1), oB = -side * (tw / 2 - 1 - dep);
+      tc.save(); strip(e - half, e + half, oA, oB); tc.clip();
+      tc.strokeStyle = 'rgba(255,255,255,.22)'; tc.lineWidth = 3;
+      for (let j = e - half; j <= e + half; j += 4) { const a = pt(j, oA * 1.05), b = pt(j, oB * .95); tc.beginPath(); tc.moveTo(a[0], a[1]); tc.lineTo(b[0], b[1]); tc.stroke(); }
+      tc.restore();
+      strip(e - half, e + half, oA, oB); tc.strokeStyle = 'rgba(255,255,255,.28)'; tc.lineWidth = 1.5; tc.stroke();
+      // зона касания (TG) у внутреннего края на апексе: штриховка, рамка, буквы TG, конусы по краям
+      const iA = side * (tw / 2 - 1), iB = side * (tw / 2 - 1 - dep), h2 = Math.round(L * .8 / 2);
+      tc.save(); strip(i - h2, i + h2, iA, iB); tc.clip();
+      tc.fillStyle = 'rgba(232,69,44,.12)'; tc.fillRect(0, 0, W, H);
+      const [mx, my] = pt(i, (iA + iB) / 2);
+      tc.strokeStyle = 'rgba(232,69,44,.42)'; tc.lineWidth = 3;
+      for (let j = -14; j <= 14; j++) { tc.beginPath(); tc.moveTo(mx + j * 9 - 60, my - 60); tc.lineTo(mx + j * 9 + 60, my + 60); tc.stroke(); }
+      tc.restore();
+      strip(i - h2, i + h2, iA, iB); tc.strokeStyle = 'rgba(255,255,255,.34)'; tc.lineWidth = 1.8; tc.stroke();
+      const [tx, ty] = pt(i, iB - side * tw * .14), q = id(i);
+      let rot = Math.atan2(F.tan[q][1], F.tan[q][0]); if (rot > Math.PI / 2) rot -= Math.PI; if (rot < -Math.PI / 2) rot += Math.PI;
+      tc.save(); tc.translate(tx, ty); tc.rotate(rot); tc.fillStyle = 'rgba(255,255,255,.28)';
+      tc.font = `bold ${Math.round(L * .32)}px Arial, sans-serif`; tc.textAlign = 'center'; tc.textBaseline = 'middle'; tc.fillText('TG', 0, 0); tc.restore();
+      [i - h2 - 3, i + h2 + 3].forEach(j => { const [x, y] = pt(j, side * (tw / 2 + L * .12)); cone(x, y, L * .08); });
+      // свет прожектора над зоной касания
+      const [lx, ly] = pt(i, side * tw * .2), lr = tc.createRadialGradient(lx, ly, 0, lx, ly, tw * 1.4);
+      lr.addColorStop(0, 'rgba(255,220,170,.06)'); lr.addColorStop(1, 'rgba(255,220,170,0)'); tc.fillStyle = lr; tc.fillRect(0, 0, W, H);
+    });
+    const v = tc.createRadialGradient(W / 2, H / 2, Math.min(W, H) * .25, W / 2, H / 2, Math.max(W, H) * .85);
+    v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.42)'); tc.fillStyle = v; tc.fillRect(0, 0, W, H);
+  }
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, lowCPU ? 1.5 : 2);
+    W = innerWidth; H = innerHeight;
+    const keep = G && G.P ? G.P.s[cars[0].idx] / G.P.S : rng(SEED + 7)();
+    [cv, track, marks].forEach(c => { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); });
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); mc.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const m = Math.min(W, H), L = Math.max(44, Math.min(84, m * .15)), pxm = L / 4.3;  // машина ≈ 4.3 м
+    G = { L, Wc: L * .47, tw: L * 2.1, gap: L * 2.1, pxm, amax: 1.25 * 9.81 * pxm };
+    buildPath();
+    // скорость под самый крутой поворот трассы: чтобы проходить его на пределе сцепления, без торможений
+    // скорость под типичные повороты трассы (самые крутые изгибы машина проходит чуть шире — как в жизни)
+    const ks = G.P.kk.map(Math.abs).sort((a, b) => a - b), k90 = Math.max(1e-6, ks[Math.floor(ks.length * .9)]);
+    G.v = Math.max(10.5 * pxm, Math.min(16 * pxm, Math.sqrt(G.amax / k90 * .9)));
+    cars.forEach((c, i) => {
+      const s0 = keep * G.P.S - (i ? G.gap : 0), p = at(s0);
+      c.idx = Math.round(((s0 % G.P.S) + G.P.S) % G.P.S / 2) % G.P.N;
+      c.x = p.x; c.y = p.y; c.hv = Math.atan2(p.ty, p.tx); c.V = G.v; c.w = 0; c.nz = 0; c.lat = 0;
+      c.side = p.k >= 0 ? 1 : -1; c.style = i ? 1.06 : 1;
+      c.yaw = c.hv + c.side * .65; c.psid = 0; c.beta = wrap(c.yaw - c.hv);
+      c.steer = -c.beta * .88; c.v = c.V; c.tx = p.tx; c.ty = p.ty;
+      c.prev = null; c.fire = 0; c.brake = 0;
+    });
+    drawTrack();
+    if (!running()) still();
+  }
+  // ---------- движение: «живая» модель заноса, а не езда по рельсам ----------
+  // Центр машины не привязан к линии: курс поворачивает к точке впереди на траектории не круче, чем позволяет
+  // сцепление, поэтому машина сама «плавает» по ширине трассы. Кузов — отдельная масса с инерцией: угол растёт
+  // от бокового ускорения, качается от «газа» водителя, на перекладке перелетает и докручивается.
+  const wrap = a => Math.atan2(Math.sin(a), Math.cos(a));
+  const gauss = () => Math.sqrt(-2 * Math.log(Math.random() || 1e-9)) * Math.cos(TAU * Math.random());
+  function nearest(c) {  // ближайшая точка траектории рядом с прошлой
+    const P = G.P, N = P.N; let best = c.idx, bd = Infinity;
+    for (let j = -24; j <= 24; j++) {
+      const q = (c.idx + j + N) % N, p = P.pts[q], d = (p[0] - c.x) ** 2 + (p[1] - c.y) ** 2;
+      if (d < bd) { bd = d; best = q; }
+    }
+    c.idx = best; c.off = Math.sqrt(bd);
+  }
+  function step(c, dt, lead) {
+    const P = G.P;
+    nearest(c);
+    if (c.off > G.tw * .34) {  // у самого края мягко возвращаем к траектории — колёса за бордюр, но не вся машина
+      const p = P.pts[c.idx], k = (c.off - G.tw * .34) / c.off * .5;
+      c.x -= (c.x - p[0]) * k; c.y -= (c.y - p[1]) * k;
+    }
+    const sNow = P.s[c.idx];
+    // «газ» водителя и его линия: медленно гуляющий шум — каждый круг немного другой
+    c.nz += -c.nz / .9 * dt + Math.sqrt(2 * dt / .9) * gauss();
+    c.lat += -c.lat / 2.2 * dt + Math.sqrt(2 * dt / 2.2) * gauss();
+    const wide = Math.max(0, c.off - G.tw * .2) / G.tw;  // уносит к краю — водитель подруливает и чуть сбрасывает газ
+    // скорость: чуть проседает, когда машина сильно боком; преследователь мягко держит дистанцию
+    let vt = G.v * (1 - .12 * Math.min(1, Math.abs(c.beta) / .9)) * (1 + .035 * c.nz) * (1 - Math.min(.15, wide * 1.5));
+    if (lead) {
+      const gap = ((P.s[lead.idx] - sNow) % P.S + P.S) % P.S;
+      vt *= Math.max(.9, Math.min(1.12, 1 + (gap - G.gap) / (G.L * 5)));
+    }
+    c.V += (vt - c.V) * Math.min(1, dt / .7);
+    // курс: к точке впереди на траектории, но не круче, чем позволяет сцепление
+    const T = at(sNow + Math.max(G.L * 1.6, c.V * .55)), lo = c.lat * G.tw * .1;
+    const tx = T.x - T.ty * lo, ty = T.y + T.tx * lo;
+    const wmax = G.amax / Math.max(c.V, 1);
+    const w = Math.max(-wmax, Math.min(wmax, wrap(Math.atan2(ty - c.y, tx - c.x) - c.hv) * (2.3 + wide * 14)));
+    c.w += (w - c.w) * Math.min(1, dt / .14);
+    c.hv += c.w * dt;
+    c.x += Math.cos(c.hv) * c.V * dt; c.y += Math.sin(c.hv) * c.V * dt;
+    // сторона заноса меняется только в настоящем повороте; на перекладке — рывок кузова, хлопок, стопы
+    const alat = c.V * c.w;
+    if (Math.abs(alat) > G.amax * .22) {
+      const ns = alat > 0 ? 1 : -1;
+      if (ns !== c.side) { c.side = ns; c.psid += ns * 1.15; if (Math.random() < .5) c.fire = .14; c.brake = .25; }
+    }
+    // угол кузова: цель от бокового ускорения и «газа»; кузов догоняет её с инерцией (пружина с демпфером)
+    const mag = (22 + 30 * Math.min(1, Math.abs(alat) / (G.amax * .75))) * (1 + .1 * c.nz) * c.style * Math.PI / 180;
+    const wn = 6, z = .47;
+    c.psid += (wn * wn * wrap(c.hv + c.side * mag - c.yaw) - 2 * z * wn * c.psid) * dt;
+    c.yaw += c.psid * dt;
+    c.beta = wrap(c.yaw - c.hv);
+    c.steer = Math.max(-.8, Math.min(.8, -c.beta * .88 + c.side * .05));  // контрруль: передние колёса — по ходу машины
+    c.brake = Math.max(0, c.brake - dt); c.fire = Math.max(0, c.fire - dt);
+    c.v = c.V; c.tx = Math.cos(c.hv); c.ty = Math.sin(c.hv);
+  }
+  const toWorld = (c, lx, ly) => { const co = Math.cos(c.yaw), si = Math.sin(c.yaw); return [c.x + lx * co - ly * si, c.y + lx * si + ly * co]; };
+  function addPuff(x, y, vx, vy, big) {
+    if (puffs.length >= MAXP) puffs.shift();
+    puffs.push({ x, y, vx, vy, r: big ? G.Wc * .5 : G.Wc * (.22 + Math.random() * .12), g: G.Wc * (.9 + Math.random() * .8),
+      a: 1, life: 1.6 + Math.random() * 1.6, t: 0, rot: Math.random() * TAU, spin: (Math.random() - .5) * 1.2, i: (Math.random() * 3) | 0 });
+  }
+  function emit(c, dt) {
+    const slip = Math.abs(c.beta), rear = [toWorld(c, -G.L * .3, -G.Wc * .47), toWorld(c, -G.L * .3, G.Wc * .47)];
+    if (c.prev && slip > .2) {  // следы резины: чем больше угол, тем темнее
+      mc.strokeStyle = `rgba(0,0,0,${Math.min(.5, (slip - .15) * .9).toFixed(3)})`; mc.lineWidth = G.Wc * .16; mc.lineCap = 'round';
+      rear.forEach((pt, i) => { mc.beginPath(); mc.moveTo(c.prev[i][0], c.prev[i][1]); mc.lineTo(pt[0], pt[1]); mc.stroke(); });
+    }
+    c.prev = rear;
+    const rate = Math.max(0, slip - .22) * (lowCPU ? 26 : 44) * (.7 + heat * .45);
+    let n = rate * dt; while (n > 0) {
+      if (Math.random() < n) {
+        const w = rear[Math.random() < .5 ? 0 : 1], side = Math.random() * 2 - 1;
+        addPuff(w[0], w[1], c.tx * c.v * .1 - Math.sin(c.yaw) * side * 18, c.ty * c.v * .1 + Math.cos(c.yaw) * side * 18);
+      }
+      n -= 1;
+    }
+  }
+  // ---------- отрисовка ----------
+  function drawCar(c) {
+    const L = G.L, Wc = G.Wc, co = Math.cos(c.yaw), si = Math.sin(c.yaw);
+    ctx.setTransform(dpr * co, dpr * si, -dpr * si, dpr * co, dpr * (c.x + 3), dpr * (c.y + 4));
+    ctx.globalAlpha = .9; ctx.drawImage(SHADOW, -L * .62, -Wc * .78, L * 1.24, Wc * 1.56); ctx.globalAlpha = 1;
+    ctx.setTransform(dpr * co, dpr * si, -dpr * si, dpr * co, dpr * c.x, dpr * c.y);
+    // колёса: передние в контрруле
+    [[L * .3, -1], [L * .3, 1], [-L * .3, -1], [-L * .3, 1]].forEach(([wx, sd], i) => {
+      ctx.save(); ctx.translate(wx, sd * Wc * .47); if (i < 2) ctx.rotate(c.steer);
+      ctx.fillStyle = '#0c0c0d'; ctx.fillRect(-L * .09, -Wc * .085, L * .18, Wc * .17);
+      ctx.fillStyle = 'rgba(255,255,255,.07)'; ctx.fillRect(-L * .09, -Wc * .085, L * .18, Wc * .03);
+      ctx.restore();
+    });
+    const k = L / SL;  // спрайт и машина на экране в одном масштабе (ширина спрайта = 0.47 длины)
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(c.spr, -(SL / 2 + SM) * k, -(SW / 2 + SM) * k, (SL + SM * 2) * k, (SW + SM * 2) * k);
+  }
+  function drawLights(c) {
+    const L = G.L, Wc = G.Wc, co = Math.cos(c.yaw), si = Math.sin(c.yaw);
+    ctx.setTransform(dpr * co, dpr * si, -dpr * si, dpr * co, dpr * c.x, dpr * c.y);
+    const tl = c.brake ? Wc * 1.1 : Wc * .55;
+    [-1, 1].forEach(sd => {
+      ctx.globalAlpha = c.brake ? .95 : .55; ctx.drawImage(RED, -L * .5 - tl / 2, sd * Wc * .31 - tl / 2, tl, tl);
+      ctx.globalAlpha = .5; ctx.drawImage(WHITE, L * .47 - Wc * .3, sd * Wc * .3 - Wc * .3, Wc * .6, Wc * .6);
+    });
+    if (c.fire > 0) { const f = Wc * (.6 + c.fire * 5); ctx.globalAlpha = Math.min(1, c.fire * 9); ctx.drawImage(FIRE, -L * .52 - f, Wc * .17 - f / 2, f * 1.3, f); }
+    ctx.globalAlpha = 1;
+  }
+  function drawBeams(c) {
+    const L = G.L, co = Math.cos(c.yaw), si = Math.sin(c.yaw);
+    ctx.setTransform(dpr * co, dpr * si, -dpr * si, dpr * co, dpr * c.x, dpr * c.y);
+    ctx.globalAlpha = .1; ctx.drawImage(BEAM, L * .45, -L * .95, L * 3.4, L * 1.9); ctx.globalAlpha = 1;
+  }
+  function compose() {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    ctx.drawImage(track, 0, 0, W, H); ctx.drawImage(marks, 0, 0, W, H);
+    ctx.globalCompositeOperation = 'lighter'; cars.forEach(drawBeams);
+    ctx.globalCompositeOperation = 'source-over'; [cars[1], cars[0]].forEach(drawCar);
+    ctx.globalCompositeOperation = 'lighter'; cars.forEach(drawLights);
+    ctx.globalCompositeOperation = 'source-over';
+  }
+  function still() { if (G) { compose(); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); } }
+  function frame(now) {
+    const dt = Math.min(.05, (now - last) / 1000 || .016); last = now; fn++; T += dt;
+    heat += (heatT - heat) * Math.min(1, dt * 2);
+    const n = Math.max(1, Math.ceil(dt / .012)), h = dt / n;  // мелкие шаги — плавная и устойчивая физика
+    for (let i = 0; i < n; i++) { step(cars[0], h, null); step(cars[1], h, cars[0]); }
+    cars.forEach(c => emit(c, dt));
+    if (fn % 20 === 0) {  // старые следы потихоньку стираются
+      mc.globalCompositeOperation = 'destination-out'; mc.fillStyle = 'rgba(0,0,0,.06)'; mc.fillRect(0, 0, W, H);
+      mc.globalCompositeOperation = 'source-over';
+    }
+    compose();
+    // дым поверх машин: клубится, растёт и тает
+    for (let i = puffs.length - 1; i >= 0; i--) {
+      const q = puffs[i];
+      q.t += dt; if (q.t >= q.life) { puffs.splice(i, 1); continue; }
+      const drag = Math.max(0, 1 - 1.6 * dt);
+      q.vx *= drag; q.vy *= drag; q.x += q.vx * dt; q.y += (q.vy - 6) * dt; q.r += q.g * dt * (1 - q.t / q.life * .6); q.rot += q.spin * dt;
+      const life = q.t / q.life, a = (life < .12 ? life / .12 : 1 - (life - .12) / .88) * (.2 + heat * .06);
+      const co = Math.cos(q.rot) * dpr, si = Math.sin(q.rot) * dpr;
+      ctx.setTransform(co, si, -si, co, q.x * dpr, q.y * dpr); ctx.globalAlpha = a;
+      ctx.drawImage(SMOKE[q.i], -q.r, -q.r, q.r * 2, q.r * 2);
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.globalAlpha = 1;
+  }
+  const FRAME_MS = lowCPU ? 31 : 15;
+  function loop(now) { raf = requestAnimationFrame(loop); if (now - last < FRAME_MS) return; frame(now); }
+  function start() { if (!running() || raf || document.hidden) return; last = performance.now(); raf = requestAnimationFrame(loop); }
+  function stop() { cancelAnimationFrame(raf); raf = 0; }
+  document.addEventListener('visibilitychange', () => document.hidden ? stop() : start());
+  addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(resize, 150); });
+  addEventListener('pointerdown', e => {  // касание — клуб дыма
+    if (!running()) return;
+    for (let i = 0; i < 4; i++) { const a = Math.random() * TAU, v = 15 + Math.random() * 30; addPuff(e.clientX, e.clientY, Math.cos(a) * v, Math.sin(a) * v); }
+  }, { passive: true });
+  resize();
+  start();
+  return {
+    mood(section, live) { heatT = live ? 1 : .45; },
+    toggle() {
+      off = !off;
+      try { localStorage.setItem('krc_fx', off ? 'off' : 'on'); } catch (e) {}
+      if (off) { stop(); puffs.length = 0; still(); } else start();
+      return !off;
+    },
+    on: () => running()
+  };
+})();
+const ICO_PAUSE = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14"/><rect x="14" y="5" width="4" height="14"/></svg>';
+const ICO_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5l12 7-12 7z"/></svg>';
+function fxIcon() { document.getElementById('fxbtn').innerHTML = BG.on() ? ICO_PAUSE : ICO_PLAY; }
+function toggleFx() {
+  BG.toggle();
+  fxIcon();
+  hap('light');
+}
+// Плавное появление раздела
+function enter(name) {
+  const sct = document.getElementById(name);
+  if (!sct || REDUCED) return;
+  sct.classList.remove('enter'); void sct.offsetWidth; sct.classList.add('enter');
+  clearTimeout(sct._t); sct._t = setTimeout(() => sct.classList.remove('enter'), 1000);
+}
+// Полоски растут, очки «докручиваются» — только когда значение изменилось
+const _cnt = {};
+function fx() {
+  document.querySelectorAll('[data-w]:not([data-fx])').forEach(el => {
+    el.dataset.fx = 1;
+    requestAnimationFrame(() => requestAnimationFrame(() => { el.style.width = el.dataset.w + '%'; }));
+  });
+  document.querySelectorAll('[data-count]:not([data-fx])').forEach(el => {
+    el.dataset.fx = 1;
+    const key = el.dataset.key, to = +el.dataset.count, from = key in _cnt ? _cnt[key] : 0;
+    _cnt[key] = to;
+    if (from === to || REDUCED) { el.textContent = to; return; }
+    const t0 = performance.now(), dur = 900;
+    const step = now => { const q = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - q, 3);
+      el.textContent = Math.round(from + (to - from) * e); if (q < 1) requestAnimationFrame(step); };
+    el.textContent = from; requestAnimationFrame(step);
+  });
+}
+new MutationObserver(() => { cancelAnimationFrame(fx._r); fx._r = requestAnimationFrame(fx); })
+  .observe(document.body, { childList: true, subtree: true });
+const liveStage = () => D && D.stages.find(x => x.state === 'run' || x.state === 'qual');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 const STATE = { draft: 'черновик', reg: 'регистрация', qual: 'квалификация', run: 'парные заезды', done: 'завершён' };
 const tme = arg => D && D.bot ? `https://t.me/${D.bot}?start=${arg}` : '#';
@@ -200,24 +815,29 @@ function openTg(url) {
 function regBlock(st) {
   if (st.state !== 'reg') return '';
   const my = (ME.reg || {})[st.id];
-  if (my === 'in') return '<div class="note" style="margin-top:10px">✅ Ты записан на этот этап</div>';
-  if (my === 'pend') return '<div class="note" style="margin-top:10px">⏳ Заявка у организаторов — бот напишет, когда её рассмотрят</div>';
-  if (st.closed) return '<div class="note" style="margin-top:10px">🔒 Регистрация закрыта — скоро сетка</div>';
-  return link(st.appr ? '✋ Подать заявку на этап' : '✋ Записаться на этап', 'rg_' + st.id) + '<div class="note" style="margin-top:6px">Соло или в составе клуба — одна кнопка для всех</div>';
+  if (my === 'in') return '<div class="note" style="margin-top:10px">✓ Ты записан на этот этап</div>';
+  if (my === 'pend') return '<div class="note" style="margin-top:10px">Заявка у организаторов — бот напишет, когда её рассмотрят</div>';
+  if (st.closed) return '<div class="note" style="margin-top:10px">Регистрация закрыта — скоро сетка</div>';
+  return link(st.appr ? 'Подать заявку на этап' : 'Записаться на этап', 'rg_' + st.id) + '<div class="note" style="margin-top:6px">Соло или в составе клуба — одна кнопка для всех</div>';
 }
 const link = (text, arg, cls = 'btn') => `<a class="${cls}" href="#" onclick="openTg('${tme(arg)}');return false">${text}</a>`;
 
 async function load() {
   document.getElementById('status').textContent = 'загрузка…';
+  const rb = document.getElementById('rfbtn'); rb.classList.add('spin');
+  const first = !D;
   try {
     const r = await fetch(Q.get('data') || BOT_URL + '/data?t=' + Date.now(), { cache: 'no-store' });
     D = await r.json();
     document.getElementById('status').textContent = (D.season ? D.season.name + ' · ' : '') + 'обновлено в ' + new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
   } catch (e) {
-    document.getElementById('status').textContent = 'нет связи с ботом — попробуй ↻ через минуту';
+    document.getElementById('status').textContent = 'нет связи с ботом — обнови через минуту';
+    rb.classList.remove('spin');
     if (!D) return;
   }
+  rb.classList.remove('spin');
   render();
+  if (first) enter(cur);
 }
 async function loadMe() {
   if (!TG) return;
@@ -229,19 +849,25 @@ async function api(body) {
 }
 function render() {
   if (!D) return;
+  const lv = liveStage();
+  document.getElementById('lvdot').hidden = !lv;
+  BG.mood(cur, !!lv);
   renderHome(); renderStages(); renderPilots(); renderClubs(); renderRules();
   if (stageId) renderStage();
 }
 function show(name) {
+  if (D && name !== cur) hap('sel');
   cur = name;
+  BG.mood(name, !!liveStage());
   document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === name));
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.t === name || (name === 'stage' && b.dataset.t === 'stages')));
   window.scrollTo(0, 0);
+  enter(name);
 }
 const badge = st => `<span class="badge ${st.state}">${st.state === 'reg' && st.closed ? 'запись закрыта' : STATE[st.state]}</span>${st.test ? ' <span class="badge test">тест</span>' : ''}`;
 const pn = pl => pl ? (pl.num ? '#' + pl.num + ' ' : '') + pl.nick : '';
-const pilotLine = (p, i, pts, sub) => `<div class="row"><span class="pl ${i < 3 ? 'p' + (i + 1) : ''}">${i + 1}</span>
-  <div class="nm">${esc(p.nick || p.name)}${sub ? `<small>${esc(sub)}</small>` : ''}</div><span class="pt">${pts}</span></div>`;
+const pilotLine = (p, i, pts, sub, key) => `<div class="row"><span class="pl ${i < 3 ? 'p' + (i + 1) : ''}">${i + 1}</span>
+  <div class="nm">${esc(p.nick || p.name)}${sub ? `<small>${esc(sub)}</small>` : ''}</div><span class="pt"${key && typeof pts === 'number' ? ` data-count="${pts}" data-key="${key}"` : ''}>${pts}</span></div>`;
 
 const curSeason = () => (D.season && D.season.n) || 1;
 function mainStage() {
@@ -257,36 +883,46 @@ function meCard() {
     const rank = D.pilots.indexOf(me) + 1;
     h += `<div class="top"><div class="num">${me.num ? '#' + me.num : esc(me.nick.slice(0, 2).toUpperCase())}</div>
       <div class="who"><b>${esc(me.nick)}</b><span class="note">${esc(me.club || 'соло')}${me.car ? ' · ' + esc(me.car) : ''}</span></div>
-      <div class="rk"><b>${me.pts}</b><span class="note">${me.pts ? rank + '-е место' : 'очков'}</span></div></div>`;
+      <div class="rk"><b data-count="${me.pts}" data-key="me">${me.pts}</b><span class="note">${me.pts ? rank + '-е место' : 'очков'}</span></div></div>`;
   } else {
     h += `<div class="top"><div class="num">?</div><div class="who"><b>Ты ещё не пилот</b><span class="note">Пара минут в боте — и ты в чемпионате</span></div></div>`;
-    h += task('🏎', 'Стать пилотом', 'ник, номер, машина', 'menu', true);
+    h += task('pilot', 'Стать пилотом', 'ник, номер, машина', 'menu', true);
   }
   if (ME.pair) {
     const st = D.stages.find(x => x.id === ME.pair.sid);
     const m = st && ME.pair.mid ? st.matches.find(x => x.id === ME.pair.mid) : null;
     if (m) {
       const opp = m.a && m.a.id === ME.pid ? m.b : m.a;
-      h += task('⚔️', `Твоя пара: vs ${esc(pn(opp))}`, esc(ME.pair.status || '') + (m.until ? ' · <span data-until="' + m.until + '"></span>' : ''), 'pair', !m.judging);
+      h += task('vs', `Твоя пара: vs ${esc(pn(opp))}`, esc(ME.pair.status || '') + (m.until ? ' · <span data-until="' + m.until + '"></span>' : ''), 'pair', !m.judging);
       h += ME.pair.opp_un
-        ? `<a class="task" href="#" onclick="openTg('https://t.me/${encodeURIComponent(ME.pair.opp_un)}');return false"><span class="ic">✉️</span>
+        ? `<a class="task" href="#" onclick="openTg('https://t.me/${encodeURIComponent(ME.pair.opp_un)}');return false"><span class="ic">${ICONS.mail}</span>
             <span class="tx">Написать сопернику<small>@${esc(ME.pair.opp_un)}</small></span><span class="go">›</span></a>`
         : `<div class="note" style="margin-top:8px">У соперника нет @username в Телеграме — связаться напрямую не получится.</div>`;
-    } else if (st) h += task('⏱', 'Твоя квалификация', 'сдай видео соло-заезда по ТЗ', 'pair', true);
+    } else if (st) h += task('qual', 'Твоя квалификация', 'сдай видео соло-заезда по ТЗ', 'pair', true);
   }
-  if (ME.judge) h += task('⚖️', ME.jq ? `Ждут твоего решения: ${ME.jq}` : 'Ты судья этапа', ME.jq ? 'пришлю видео ещё раз' : 'новых заездов нет', 'judge', ME.jq > 0);
-  if (ME.org) h += task('⚙️', 'Панель организатора', 'этапы, судьи, пары сейчас', 'org', false);
+  if (ME.judge) h += task('judge', ME.jq ? `Ждут твоего решения: ${ME.jq}` : 'Ты судья этапа', ME.jq ? 'пришлю видео ещё раз' : 'новых заездов нет', 'judge', ME.jq > 0);
+  if (ME.org) h += task('org', 'Панель организатора', 'этапы, судьи, пары сейчас', 'org', false);
   const run = D.stages.find(x => x.state === 'run');
   const openPicks = run ? run.matches.filter(m => m.pick_open && !(ME.pid && m.a && m.b && (m.a.id === ME.pid || m.b.id === ME.pid))) : [];
   if (openPicks.length) {
     const left = openPicks.filter(m => !((ME.picks || {})[run.id] || {})[m.id]).length;
-    h += `<a class="task ${left ? 'hot' : ''}" href="#" onclick="openStage('${run.id}');setTab('picks');return false"><span class="ic">🔮</span>
+    h += `<a class="task ${left ? 'hot' : ''}" href="#" onclick="openStage('${run.id}');setTab('picks');return false"><span class="ic">${ICONS.picks}</span>
       <span class="tx">Прогнозы: ${left ? 'ждут тебя ' + left : 'все сделаны'}<small>угадай победителей пар · угадано ${(ME.pstat || [0])[0]} из ${(ME.pstat || [0, 0])[1]}</small></span><span class="go">›</span></a>`;
   }
   return `<div class="me">${h}</div>`;
 }
+const SV = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+const ICONS = {
+  pilot: SV('<path d="M4 16a8 8 0 0 1 16 0v3H4z"/><path d="M11 11h9"/>'),
+  vs: '<b>VS</b>',
+  qual: SV('<circle cx="12" cy="13" r="7"/><path d="M12 13V9.5M10 3h4"/>'),
+  judge: SV('<path d="M12 4v16M6 20h12M5 7h14"/><path d="M7 7l-3 6a3 3 0 0 0 6 0zM17 7l-3 6a3 3 0 0 0 6 0z"/>'),
+  org: SV('<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>'),
+  picks: SV('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>'),
+  mail: SV('<rect x="3" y="6" width="18" height="12" rx="1.5"/><path d="M3.5 7l8.5 6 8.5-6"/>')
+};
 function task(ic, title, sub, arg, hot) {
-  return `<a class="task ${hot ? 'hot' : ''}" href="#" onclick="openTg('${tme(arg)}');return false"><span class="ic">${ic}</span>
+  return `<a class="task ${hot ? 'hot' : ''}" href="#" onclick="openTg('${tme(arg)}');return false"><span class="ic">${ICONS[ic] || ic}</span>
     <span class="tx">${title}<small>${sub}</small></span><span class="go">›</span></a>`;
 }
 // Ход этапа: сколько пар решено, сколько у судей
@@ -296,46 +932,49 @@ function stageProgress(st) {
   const done = real.filter(m => m.done).length;
   const judging = st.matches.filter(m => m.judging).length;
   const waiting = st.matches.filter(m => m.live && !m.judging).length;
-  return `<div class="prog"><i style="width:${real.length ? Math.round(done * 100 / real.length) : 0}%"></i></div>
+  return `<div class="prog live"><i data-w="${real.length ? Math.round(done * 100 / real.length) : 0}"></i></div>
     <div class="note">Решено пар: ${done} из ${real.length}</div>
-    <div class="pills">${judging ? `<span>⚖️ у судей: ${judging}</span>` : ''}${waiting ? `<span>🎥 ждём видео: ${waiting}</span>` : ''}</div>`;
+    <div class="pills">${judging ? `<span>у судей: ${judging}</span>` : ''}${waiting ? `<span>ждём видео: ${waiting}</span>` : ''}</div>`;
 }
 function tickTimers() {
   document.querySelectorAll('[data-until]').forEach(el => {
     const s = Math.round(+el.dataset.until - Date.now() / 1000);
-    el.textContent = s > 0 ? `⏳ ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : '⏰ время вышло';
+    el.textContent = s > 0 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : 'время вышло';
   });
 }
 setInterval(tickTimers, 1000);
 function renderHome() {
   const st = mainStage(), about = D.content.about || {};
-  let h = meCard() + `<div class="card hero"><div class="big">Khinkali Racing Championship</div>
+  const lv = liveStage();
+  const lvTxt = lv ? (lv.state === 'qual' ? 'квалификация' : 'решено пар ' + lv.matches.filter(m => !m.bye && m.done).length + ' из ' + lv.matches.filter(m => !m.bye).length) : '';
+  let h = meCard() + `<div class="card hero"><div class="flag"></div><div class="in"><div class="big">Khinkali Racing Championship</div>
     <div class="note" style="margin-top:6px">Чемпионат по дрифту в CarX Drift Racing 3 · личный и клубный зачёт</div>
-    ${about.text ? `<div class="text" style="margin-top:10px">${esc(about.text)}</div>` : ''}</div>`;
-  if ((D.news || []).length) h += `<h3>📰 Новости</h3><div class="card">${D.news.slice(0, 3).map(n => `<div class="news">
+    ${about.text ? `<div class="text" style="margin-top:10px">${esc(about.text)}</div>` : ''}
+    ${lv ? `<div class="livetag" onclick="openStage('${lv.id}')"><b>LIVE</b><span>${esc(lv.title)} · ${lvTxt}</span></div>` : ''}</div></div>`;
+  if ((D.news || []).length) h += `<h3>Новости</h3><div class="card">${D.news.slice(0, 3).map(n => `<div class="news">
     <div class="d">${new Date(n.t * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}</div><div class="text">${esc(n.text)}</div></div>`).join('')}</div>`;
   if (st) {
-    h += `<div class="card"><div class="note">${st.state === 'done' ? 'Последний этап' : 'Сейчас'}</div>
+    h += `<div class="card"><div class="lbl">${st.state === 'done' ? 'Последний этап' : 'Сейчас'}</div>
       <h3 style="margin:4px 0">${esc(st.title)} ${badge(st)}</h3>
       <div class="note">${st.date ? esc(st.date) + ' · ' : ''}топ-${st.size} · ${st.de ? 'с лузер-сеткой' : 'на вылет'} · записано ${st.reg.length}</div>
       ${stageProgress(st)}
-      <a class="btn ${st.state === 'reg' ? 'ghost' : ''}" href="#" onclick="openStage('${st.id}');return false">${st.state === 'run' || st.state === 'done' ? '🏁 Сетка этапа' : 'Подробнее об этапе'}</a>
+      <a class="btn ${st.state === 'reg' ? 'ghost' : ''}" href="#" onclick="openStage('${st.id}');return false">${st.state === 'run' || st.state === 'done' ? 'Сетка этапа' : 'Подробнее об этапе'}</a>
       ${regBlock(st)}</div>`;
   } else h += `<div class="card"><div class="note">Этапов пока нет — следи за новостями.</div></div>`;
-  if (D.pilots.some(p => p.pts)) h += `<h3>Личный зачёт</h3><div class="card">${D.pilots.slice(0, 5).map((p, i) => pilotLine(p, i, p.pts, p.club)).join('')}
+  if (D.pilots.some(p => p.pts)) h += `<h3>Личный зачёт</h3><div class="card">${D.pilots.slice(0, 5).map((p, i) => pilotLine(p, i, p.pts, p.club, 'h' + p.id)).join('')}
     <a class="btn ghost" href="#" onclick="show('pilots');return false">Вся таблица</a></div>`;
-  if ((D.pickers || []).length) h += `<h3>🔮 Прогнозисты сезона</h3><div class="card">${D.pickers.slice(0, 5).map((r, i) => pilotLine({ nick: r.name }, i, r.ok + '/' + r.n, '')).join('')}</div>`;
-  if (D.clubs.some(c => c.pts)) h += `<h3>Клубный зачёт</h3><div class="card">${D.clubs.slice(0, 5).map((c, i) => pilotLine({ nick: c.name }, i, c.pts, c.members.length + ' пил.')).join('')}</div>`;
-  h += link('🏎 Открыть бота: стать пилотом, клуб, заезды', 'menu', 'btn ghost');
+  if ((D.pickers || []).length) h += `<h3>Прогнозисты сезона</h3><div class="card">${D.pickers.slice(0, 5).map((r, i) => pilotLine({ nick: r.name }, i, r.ok + '/' + r.n, '')).join('')}</div>`;
+  if (D.clubs.some(c => c.pts)) h += `<h3>Клубный зачёт</h3><div class="card">${D.clubs.slice(0, 5).map((c, i) => pilotLine({ nick: c.name }, i, c.pts, c.members.length + ' пил.', 'c' + c.id)).join('')}</div>`;
+  h += link('Открыть бота: стать пилотом, клуб, заезды', 'menu', 'btn ghost');
   document.getElementById('home').innerHTML = h;
   tickTimers();
 }
 function renderStages() {
   const all = D.stages.filter(s => s.state !== 'draft'), list = all.filter(s => (s.season || 1) === curSeason()), old = all.filter(s => (s.season || 1) !== curSeason());
-  const card = s => `<div class="card" onclick="openStage('${s.id}')" style="cursor:pointer">
+  const card = s => `<div class="card ${s.state === 'run' || s.state === 'qual' ? 'live' : ''}" onclick="openStage('${s.id}')" style="cursor:pointer">
     <div style="display:flex;justify-content:space-between;gap:8px"><b>${esc(s.title)}</b>${badge(s)}</div>
     <div class="note">${s.date ? esc(s.date) + ' · ' : ''}топ-${s.size} · ${s.de ? 'лузер-сетка' : 'на вылет'} · ${s.qual ? 'квалификация' : 'без квалификации'} · судей ${s.jn}</div>
-    ${s.state === 'done' && s.places.length ? `<div style="margin-top:6px">🥇 ${esc(s.places[0][0].nick)}${s.places[1] ? ' · 🥈 ' + esc(s.places[1][0].nick) : ''}${s.places[2] ? ' · 🥉 ' + esc(s.places[2][0].nick) : ''}</div>` : ''}
+    ${s.state === 'done' && s.places.length ? `<div style="margin-top:8px"><span class="medal m1">1</span>${esc(s.places[0][0].nick)}${s.places[1] ? ' &nbsp;<span class="medal m2">2</span>' + esc(s.places[1][0].nick) : ''}${s.places[2] ? ' &nbsp;<span class="medal m3">3</span>' + esc(s.places[2][0].nick) : ''}</div>` : ''}
   </div>`;
   document.getElementById('stages').innerHTML = `<h2>Этапы · ${esc(D.season ? D.season.name : '')}</h2>` + (list.length ? list.map(card).join('') : '<div class="empty">В этом сезоне этапов пока нет</div>')
     + (old.length ? `<h3>Прошлые сезоны</h3>` + old.reverse().map(card).join('') : '');
@@ -350,22 +989,22 @@ function renderStage() {
   if (!st) { el.innerHTML = '<div class="empty">Этап не найден</div>'; return; }
   const anyPicks = st.matches.some(m => (m.picks || [0, 0])[0] + (m.picks || [0, 0])[1]);
   const tabs = [['info', 'Об этапе'], ['bracket', 'Сетка'], st.qual ? ['qual', 'Квалификация'] : null, ['reg', 'Участники'],
-    st.state === 'run' || anyPicks ? ['picks', '🔮 Прогнозы'] : null, st.state === 'done' ? ['res', 'Итоги'] : null].filter(Boolean);
+    st.state === 'run' || anyPicks ? ['picks', 'Прогнозы'] : null, st.state === 'done' ? ['res', 'Итоги'] : null].filter(Boolean);
   if (!tabs.some(t => t[0] === stageTab)) stageTab = tabs[0][0];
   let h = `<a class="back" href="#" onclick="show('stages');return false">← Этапы</a><h2>${esc(st.title)} ${badge(st)}</h2>
     <div class="chips">${tabs.map(([k, t]) => `<span class="chip ${stageTab === k ? 'on' : ''}" onclick="setTab('${k}')">${t}</span>`).join('')}</div>`;
   if (stageTab === 'info') {
-    h += `<div class="card">${st.date ? `<div>📅 ${esc(st.date)}</div>` : ''}<div>Сетка: топ-${st.size}, ${st.de ? 'с лузер-сеткой' : 'на вылет'}, заезд за 3-е место есть всегда</div>
+    h += `<div class="card">${st.date ? `<div>Дата: ${esc(st.date)}</div>` : ''}<div>Сетка: топ-${st.size}, ${st.de ? 'с лузер-сеткой' : 'на вылет'}, заезд за 3-е место есть всегда</div>
       <div>Квалификация: ${st.qual ? 'да, по видео соло-заезда' : 'нет, посев по очкам сезона или жребием'}</div>
       <div>Судей: ${st.jn}${st.judges.length ? ' — ' + st.judges.map(esc).join(', ') : ''}</div>
       <div>Время на заезд: ${st.dl ? st.dl + ' мин' : 'без ограничения'} · протесты: ${st.pw ? 'в течение ' + st.pw + ' мин после решения' : 'нет'}</div>
-      ${st.appr ? '<div>Заявки одобряет организатор</div>' : ''}${st.test ? '<div>🧪 Тестовый этап — очки не начисляются</div>' : ''}
+      ${st.appr ? '<div>Заявки одобряет организатор</div>' : ''}${st.test ? '<div>Тестовый этап — очки не начисляются</div>' : ''}
       ${regBlock(st)}</div>
-      ${st.sched ? `<h3>🕒 Расписание</h3><div class="card text">${esc(st.sched)}</div>` : ''}
-      ${st.dsq.length ? `<h3>⛔ Дисквалифицированы</h3><div class="card">${st.dsq.map(([n, w]) => `<div class="row"><div class="nm">${esc(n)}<small>${esc(w)}</small></div></div>`).join('')}</div>` : ''}`;
+      ${st.sched ? `<h3>Расписание</h3><div class="card text">${esc(st.sched)}</div>` : ''}
+      ${st.dsq.length ? `<h3>Дисквалифицированы</h3><div class="card">${st.dsq.map(([n, w]) => `<div class="row"><div class="nm">${esc(n)}<small>${esc(w)}</small></div></div>`).join('')}</div>` : ''}`;
     ['q', 'b'].forEach(k => { const tz = st.tz[k]; if (!tz) return;
-      h += `<h3>📋 ТЗ ${k === 'q' ? 'квалификации' : 'парных заездов'}</h3><div class="card"><div class="text">${esc(tz.text)}</div>
-        ${tz.video ? link('🎥 Получить видео ТЗ в Телеграме', `tz_${st.id}_${k}`, 'btn ghost') : ''}</div>`; });
+      h += `<h3>ТЗ ${k === 'q' ? 'квалификации' : 'парных заездов'}</h3><div class="card"><div class="text">${esc(tz.text)}</div>
+        ${tz.video ? link('Видео ТЗ в Телеграме', `tz_${st.id}_${k}`, 'btn ghost') : ''}</div>`; });
   } else if (stageTab === 'bracket') {
     if (!st.matches.length) h += `<div class="empty">Сетка появится, когда закончится ${st.qual ? 'квалификация' : 'регистрация'}.</div>`;
     else {
@@ -378,8 +1017,8 @@ function renderStage() {
   } else if (stageTab === 'qual') {
     h += st.qruns.length ? `<div class="card"><table><tr><th>#</th><th>Пилот</th><th style="text-align:right">Очки</th><th></th></tr>
       ${st.qruns.map((r, i) => `<tr><td>${r[2] === 'ok' ? i + 1 : ''}</td><td>${esc(r[0])}</td><td class="n">${r[1]}</td>
-        <td>${r[2] === 'ok' ? '✅' : r[2] === 'wait' ? '⏳' : '❌'}</td></tr>`).join('')}</table></div>
-      <p class="note">✅ засчитано · ⏳ у судей · ❌ не по ТЗ. В сетку проходят топ-${st.size}.</p>` : '<div class="empty">Квалификацию ещё никто не сдал.</div>';
+        <td>${r[2] === 'ok' ? '✓' : r[2] === 'wait' ? '…' : '✗'}</td></tr>`).join('')}</table></div>
+      <p class="note">✓ засчитано · … у судей · ✗ не по ТЗ. В сетку проходят топ-${st.size}.</p>` : '<div class="empty">Квалификацию ещё никто не сдал.</div>';
   } else if (stageTab === 'reg') {
     h += st.reg.length ? `<div class="card">${st.reg.map((p, i) => `<div class="row"><span class="pl">${i + 1}</span><div class="nm">${esc(pn(p))}<small>${esc(p.club || 'соло')}</small></div></div>`).join('')}</div>`
       : '<div class="empty">Пока никто не записался.</div>';
@@ -393,9 +1032,9 @@ function renderStage() {
     if (closed.length) h += `<h3>Закрыты</h3>` + closed.slice().reverse().map(m => `<div class="pcard"><div class="t"><span>${esc(m.name)}</span><span>${m.done ? 'решено' : 'у судей'}</span></div>${pickInner(st, m)}</div>`).join('');
     h += pickersTable();
   } else if (stageTab === 'res') {
-    h += `<button class="btn" onclick="resultCard('${st.id}')">🖼 Картинка итогов${TG ? ' — прислать в бот' : ''}</button>`;
+    h += `<button class="btn" onclick="resultCard('${st.id}')">Картинка итогов${TG ? ' — прислать в бот' : ''}</button>`;
     h += `<div class="card">${st.places.map(([p, place, pts], i) => `<div class="row"><span class="pl ${place <= 3 ? 'p' + place : ''}">${place}</span>
-      <div class="nm">${esc(pn(p))}<small>${esc(p.club || 'соло')}${st.dsq.some(d => d[0] === p.nick) ? ' · ⛔ DSQ' : ''}</small></div><span class="pt">+${pts}</span></div>`).join('')}</div>`;
+      <div class="nm">${esc(pn(p))}<small>${esc(p.club || 'соло')}${st.dsq.some(d => d[0] === p.nick) ? ' · DSQ' : ''}</small></div><span class="pt">+${pts}</span></div>`).join('')}</div>`;
     h += fanBlock(st);
   }
   el.innerHTML = h;
@@ -415,25 +1054,27 @@ function pickInner(st, m) {
     const wn = m.done && m.w ? (m.w === 'a' ? m.a : m.b) : null;
     h += `<div><b>${esc(pn(m.a))}</b> <span class="note">vs</span> <b>${esc(pn(m.b))}</b>${wn ? ` <span class="note">· победил ${esc(wn.nick)}</span>` : ''}</div>`;
     h += `<div class="note" style="margin-top:4px">${m.pick_open ? (isMe ? 'Это твоя пара — прогноз делать нельзя.' : 'Прогнозы делают в приложении внутри Телеграма.')
-      : m.done ? (mine ? (mine === m.w ? '✅ Твой прогноз сбылся' : '❌ Твой прогноз не сбылся') : 'Прогнозы закрыты')
+      : m.done ? (mine ? (mine === m.w ? '✓ Твой прогноз сбылся' : '✗ Твой прогноз не сбылся') : 'Прогнозы закрыты')
       : m.judging ? 'Заезд у судей — прогнозы закрыты' + (mine ? ' · твой прогноз: ' + esc((mine === 'a' ? m.a : m.b).nick) : '')
       : 'Прогнозы откроются, когда пара начнётся'}</div>`;
   }
-  if (tot) h += `<div class="split"><i style="width:${Math.round(na * 100 / tot)}%"></i></div>
+  if (tot) h += `<div class="split"><i data-w="${Math.round(na * 100 / tot)}"></i></div>
     <div class="splitl"><span>${Math.round(na * 100 / tot)}% · ${esc(m.a.nick)}</span><span>${tot} прогн.</span><span>${esc(m.b.nick)} · ${Math.round(nb * 100 / tot)}%</span></div>`;
   return h;
 }
 function pickersTable() {
   const rows = D.pickers || [];
   if (!rows.length) return '';
-  return `<h3>🏆 Прогнозисты сезона</h3><div class="card">${rows.slice(0, 10).map((r, i) => `<div class="row"><span class="pl ${i < 3 ? 'p' + (i + 1) : ''}">${i + 1}</span>
+  return `<h3>Прогнозисты сезона</h3><div class="card">${rows.slice(0, 10).map((r, i) => `<div class="row"><span class="pl ${i < 3 ? 'p' + (i + 1) : ''}">${i + 1}</span>
     <div class="nm">${esc(r.name)}<small>угадано ${r.ok} из ${r.n}</small></div><span class="pt">${r.n ? Math.round(r.ok * 100 / r.n) : 0}%</span></div>`).join('')}</div>
     <p class="note">В таблице виден ник пилота или имя из Телеграма.</p>`;
 }
 let sheetMatch = null;
 async function pickSide(sid, mid, side) {
+  hap('light');
   const r = await api({ act: 'pick', sid, mid, side });
-  if (!r.ok) { alert(r.error); return; }
+  if (!r.ok) { hap('err'); alert(r.error); return; }
+  hap('ok');
   ME.picks = ME.picks || {};
   (ME.picks[sid] = ME.picks[sid] || {})[mid] = side;
   await load();
@@ -523,7 +1164,7 @@ function layout(st) {
 function mcard(st, m, p, style) {
   const row = (side, pl, sd) => {
     const win = m.w === side, lose = m.w && m.w !== side && m.done;
-    const icon = win && m.manual ? '⚖️' : win ? '✓' : '';
+    const icon = win ? '✓' : '';
     return `<div class="r ${win ? 'w' : ''} ${lose && pl ? 'l' : ''}"><span class="sd">${sd || ''}</span><span class="nk">${pl ? esc(pn(pl)) : (m.done || m.bye ? 'BYE' : '—')}</span><span class="ic">${icon}</span></div>`;
   };
   const cls = m.bye ? 'bye' : m.judging ? 'judging' : m.live ? 'live' : '';
@@ -568,6 +1209,7 @@ function roundsList(st) {
 function openMatch(sid, mid) {
   const st = D.stages.find(s => s.id === sid), m = st.matches.find(x => x.id === mid);
   sheetMatch = [sid, mid];
+  hap('light');
   const nm = p => p ? esc(p.nick) : '—';
   const res = { a: m.a && m.a.nick, b: m.b && m.b.nick, omt: 'OMT', reset: 'сброшено' };
   let h = `<div style="color:var(--muted);font-size:13px">${esc(st.title)} · ${esc(m.name)}</div>
@@ -576,20 +1218,20 @@ function openMatch(sid, mid) {
   h += `<div class="note">${m.bye ? 'Автопроход — соперника не было.' : m.done ? (m.manual ? 'Результат поставил организатор.' : 'Пара решена судьями.') : m.judging ? 'Заезд у судей, ждём решения.' : m.live ? 'Пилоты катают — ждём видео.' : 'Пара ещё не определилась.'}${m.omt ? ` OMT: ${m.omt}.` : ''}</div>`;
   if (m.until && !m.done) {
     const left = Math.round((m.until * 1000 - Date.now()) / 60000);
-    h += `<div class="note" style="margin-top:6px">⏳ ${left > 0 ? 'На заезд осталось ~' + left + ' мин' : 'Время на заезд вышло — решает организатор'}</div>`;
+    h += `<div class="note" style="margin-top:6px">${left > 0 ? 'На заезд осталось ~' + left + ' мин' : 'Время на заезд вышло — решает организатор'}</div>`;
   }
-  if (m.protest) h += `<h3>📣 Протест</h3><div class="card" style="padding:10px 14px"><div>${esc(m.protest.by)}: «${esc(m.protest.why)}»</div>
+  if (m.protest) h += `<h3>Протест</h3><div class="card" style="padding:10px 14px"><div>${esc(m.protest.by)}: «${esc(m.protest.why)}»</div>
     <div class="note">${m.protest.res === 'keep' ? 'Отклонён — решение осталось' : m.protest.res === 'omt' ? 'Принят — перезаезд' : 'На рассмотрении у судей'}</div>
-    ${m.protest.votes.map(([j, v]) => `<div class="vote"><span>👨‍⚖️ ${esc(j)}</span><b>${v === 'omt' ? 'OMT' : 'оставить'}</b></div>`).join('')}</div>`;
+    ${m.protest.votes.map(([j, v]) => `<div class="vote"><span>${esc(j)}</span><b>${v === 'omt' ? 'OMT' : 'оставить'}</b></div>`).join('')}</div>`;
   if (m.a && m.b) {
     const r = h2hList(m.a.id).find(x => x.p.id === m.b.id);
-    if (r) h += `<div class="note" style="margin-top:6px">🆚 Личные встречи: ${esc(m.a.nick)} ${r.w} — ${r.l} ${esc(m.b.nick)}</div>`;
+    if (r) h += `<div class="note" style="margin-top:6px">Личные встречи: ${esc(m.a.nick)} ${r.w} — ${r.l} ${esc(m.b.nick)}</div>`;
   }
-  if (m.a && m.b && !m.bye && (st.state === 'run' || (m.picks || [0, 0])[0] + (m.picks || [0, 0])[1])) h += `<h3>🔮 Прогноз зрителей</h3><div class="card" style="padding:12px 14px">${pickInner(st, m)}</div>`;
+  if (m.a && m.b && !m.bye && (st.state === 'run' || (m.picks || [0, 0])[0] + (m.picks || [0, 0])[1])) h += `<h3>Прогноз зрителей</h3><div class="card" style="padding:12px 14px">${pickInner(st, m)}</div>`;
   m.tries.forEach((t, i) => {
-    h += `<h3>Попытка ${i + 1}: ${esc(res[t.res] || t.res)}</h3><div class="card" style="padding:10px 14px">${t.votes.map(([j, v, why]) => `<div class="vote"><span>👨‍⚖️ ${esc(j)}</span><b>${esc(res[v] || v)}</b></div>${why ? `<div class="note" style="margin:-2px 0 6px 24px">— ${esc(why)}</div>` : ''}`).join('') || '<span class="note">голосов нет</span>'}</div>`;
+    h += `<h3>Попытка ${i + 1}: ${esc(res[t.res] || t.res)}</h3><div class="card" style="padding:10px 14px">${t.votes.map(([j, v, why]) => `<div class="vote"><span>${esc(j)}</span><b>${esc(res[v] || v)}</b></div>${why ? `<div class="note" style="margin:-2px 0 6px 24px">— ${esc(why)}</div>` : ''}`).join('') || '<span class="note">голосов нет</span>'}</div>`;
   });
-  if (m.tries.length) h += link('🎥 Смотреть видео заездов в Телеграме', `w_${st.id}_${m.id}`, 'btn ghost');
+  if (m.tries.length) h += link('Видео заездов в Телеграме', `w_${st.id}_${m.id}`, 'btn ghost');
   if (ME.org && st.state !== 'draft') {
     h += `<h3>Организатор</h3>`;
     if (m.live && !m.done) h += `<button class="btn small" onclick="act('win','${sid}','${mid}','a')">Победил ${nm(m.a)}</button><button class="btn small" onclick="act('win','${sid}','${mid}','b')">Победил ${nm(m.b)}</button>`;
@@ -627,14 +1269,14 @@ function renderPilots() {
   const done = D.stages.filter(s => s.state === 'done' && (s.season || 1) === curSeason());
   document.getElementById('pilots').innerHTML = `<h2>Личный зачёт · ${esc(D.season ? D.season.name : '')}</h2>` + (D.pilots.length ? `<div class="card" style="overflow-x:auto"><table>
     <tr><th>#</th><th>Пилот</th>${done.map(s => `<th style="text-align:right">Э${s.n}</th>`).join('')}<th style="text-align:right">Очки</th></tr>
-    ${D.pilots.map((p, i) => `<tr class="click" onclick="openPilot(${p.id})"><td>${i + 1}</td><td>${p.num ? '<span class="note">#' + p.num + '</span> ' : ''}${esc(p.nick)}${p.banned ? ' ⛔' : ''}${(p.fan || []).length ? ' 🎖' : ''}<div class="note">${esc(p.club || 'соло')}</div></td>
+    ${D.pilots.map((p, i) => `<tr class="click" onclick="openPilot(${p.id})"><td>${i + 1}</td><td>${p.num ? '<span class="note">#' + p.num + '</span> ' : ''}${esc(p.nick)}${p.banned ? '<span class="tagx ban">БАН</span>' : ''}${(p.fan || []).length ? '<span class="tagx fan">★</span>' : ''}<div class="note">${esc(p.club || 'соло')}</div></td>
       ${done.map(s => `<td class="n" style="color:var(--muted)">${p.stages[s.id] ?? '·'}</td>`).join('')}<td class="n">${p.pts}</td></tr>`).join('')}</table></div>
     <p class="note">Очки за итоговое место на этапе: ${D.points.map(([mx, pt], i) => (i && D.points[i - 1][0] + 1 < mx ? (D.points[i - 1][0] + 1) + '–' : '') + mx + ' — ' + pt).join(' · ')}.</p>`
     : '<div class="empty">Пилотов пока нет.</div>') + seasonsArchive();
 }
 function seasonsArchive() {
   if (!(D.seasons || []).length) return '';
-  return `<h3>🏆 Прошлые сезоны</h3>` + D.seasons.map(s => `<div class="card"><b>${esc(s.name)}</b>
+  return `<h3>Прошлые сезоны</h3>` + D.seasons.map(s => `<div class="card"><b>${esc(s.name)}</b>
     ${s.pilots.slice(0, 3).map((p, i) => `<div class="row"><span class="pl p${i + 1}">${i + 1}</span><div class="nm">${esc(p[0])}<small>${esc(p[1] || 'соло')}</small></div><span class="pt">${p[2]}</span></div>`).join('')}
     ${s.clubs.length ? `<div class="note" style="margin-top:6px">Лучший клуб: ${esc(s.clubs[0][0])} — ${s.clubs[0][1]}</div>` : ''}</div>`).join('');
 }
@@ -645,34 +1287,37 @@ function fanBlock(st) {
   if (!pairs.length) return '';
   if (st.fan_best) {
     const m = st.matches.find(x => x.id === st.fan_best);
-    return `<h3>🎖 Пара этапа — выбор зрителей</h3><div class="card"><b>${esc(pn(m.a))} vs ${esc(pn(m.b))}</b><div class="note">${esc(m.name)} · голосов: ${st.fans[m.id] || 0}</div></div>`;
+    return `<h3>Пара этапа — выбор зрителей</h3><div class="card"><b>${esc(pn(m.a))} vs ${esc(pn(m.b))}</b><div class="note">${esc(m.name)} · голосов: ${st.fans[m.id] || 0}</div></div>`;
   }
   if (!st.fan_open) return '';
   const mine = (ME.fans || {})[st.id];
   const left = Math.max(0, Math.round((st.fan_until * 1000 - Date.now()) / 3600000));
-  return `<h3>🎖 Голосуй за пару этапа</h3><p class="note">Голосование ещё ~${left} ч. ${TG ? 'Можно поменять выбор.' : 'Голосовать можно в приложении внутри Телеграма.'}</p>
+  return `<h3>Голосуй за пару этапа</h3><p class="note">Голосование ещё ~${left} ч. ${TG ? 'Можно поменять выбор.' : 'Голосовать можно в приложении внутри Телеграма.'}</p>
     <div class="card">${pairs.map(m => `<div class="fan"><div class="nm">${esc(pn(m.a))} vs ${esc(pn(m.b))}<div class="note">${esc(m.name)} · ${st.fans[m.id] || 0} гол.</div></div>
       ${TG ? `<button class="${mine === m.id ? 'on' : ''}" onclick="fanVote('${st.id}','${m.id}')">${mine === m.id ? '✓ мой голос' : 'Голосую'}</button>` : ''}</div>`).join('')}</div>`;
 }
 async function fanVote(sid, mid) {
+  hap('light');
   const r = await api({ act: 'fan', sid, mid });
-  if (!r.ok) { alert(r.error); return; }
+  if (!r.ok) { hap('err'); alert(r.error); return; }
+  hap('ok');
   ME.fans = Object.assign({}, ME.fans, { [sid]: mid });
   await load();
 }
 function openPilot(id) {
   const p = D.pilots.find(x => x.id === id); if (!p) return;
+  hap('light');
   const place = D.pilots.indexOf(p) + 1;
   document.getElementById('sheetBody').innerHTML = `<h2 style="margin:0">${p.num ? '#' + p.num + ' ' : ''}${esc(p.nick)}</h2>
-    <div class="note">${esc(p.club || 'соло')} · ${esc(D.season ? D.season.name : '')}${p.car ? ' · 🚗 ' + esc(p.car) : ''}</div>
-    ${p.banned ? `<div class="card" style="margin-top:10px;border-color:var(--accent)">⛔ Отстранён: ${esc(p.banned)}</div>` : ''}
+    <div class="note">${esc(p.club || 'соло')} · ${esc(D.season ? D.season.name : '')}${p.car ? ' · ' + esc(p.car) : ''}</div>
+    ${p.banned ? `<div class="card" style="margin-top:10px;border-color:var(--accent)">Отстранён: ${esc(p.banned)}</div>` : ''}
     ${p.photo ? `<img class="carimg" loading="lazy" alt="" src="${BOT_URL}/img/${encodeURIComponent(p.photo)}">` : ''}
-    ${(p.fan || []).length ? `<div style="margin-top:8px">${p.fan.map(t => `<span class="badge done">🎖 Пара этапа · ${esc(t)}</span>`).join(' ')}</div>` : ''}
-    ${p.spec ? `<div class="cres ${p.carok === 'ok' ? 'ok' : p.carok === 'bad' ? 'bad' : ''}">📏 ${esc(p.spec)}<br>${p.carok === 'ok' ? '✅ По колёсному регламенту' : p.carok === 'bad' ? '❌ Не по регламенту: ' + esc(p.carwhy) : '❓ ' + esc(p.carwhy)}</div>` : ''}
+    ${(p.fan || []).length ? `<div style="margin-top:8px">${p.fan.map(t => `<span class="badge done">★ Пара этапа · ${esc(t)}</span>`).join(' ')}</div>` : ''}
+    ${p.spec ? `<div class="cres ${p.carok === 'ok' ? 'ok' : p.carok === 'bad' ? 'bad' : ''}">${esc(p.spec)}<br>${p.carok === 'ok' ? '✓ По колёсному регламенту' : p.carok === 'bad' ? '✗ Не по регламенту: ' + esc(p.carwhy) : '? ' + esc(p.carwhy)}</div>` : ''}
     <div class="stat3"><div><span class="note">Место</span><b>${p.pts ? place : '—'}</b></div><div><span class="note">Очки</span><b>${p.pts}</b></div>
       <div><span class="note">Пары</span><b>${p.w}–${p.l}</b></div></div>
-    ${(() => { const tr = placeTrend(p.id), svg = trendSVG(tr); return svg ? `<h3>📈 Место в сезоне после каждого этапа</h3><div class="card">${svg}</div>` : ''; })()}
-    ${(() => { const hh = h2hList(p.id); return hh.length ? `<h3>🆚 Личные встречи · за всё время</h3><div class="card h2h">${hh.slice(0, 8).map(r => `<div class="row" onclick="openPilot(${r.p.id})">
+    ${(() => { const tr = placeTrend(p.id), svg = trendSVG(tr); return svg ? `<h3>Место в сезоне после каждого этапа</h3><div class="card">${svg}</div>` : ''; })()}
+    ${(() => { const hh = h2hList(p.id); return hh.length ? `<h3>Личные встречи · за всё время</h3><div class="card h2h">${hh.slice(0, 8).map(r => `<div class="row" onclick="openPilot(${r.p.id})">
       <div class="nm">vs ${esc(pn(r.p))}<small>${esc(r.p.club || 'соло')}</small></div><span class="pt" style="color:${r.w > r.l ? 'var(--ok)' : r.w < r.l ? 'var(--accent)' : 'var(--muted)'}">${r.w}–${r.l}</span></div>`).join('')}</div>` : ''; })()}
     ${p.hist.length ? `<div class="card">${p.hist.map(h => `<div class="row"><span class="pl ${h[1] <= 3 ? 'p' + h[1] : ''}">${h[1]}</span><div class="nm">${esc(h[0])}</div><span class="pt">+${h[2]}</span></div>`).join('')}</div>`
       : '<p class="note">В этом сезоне ещё нет завершённых этапов.</p>'}
@@ -686,7 +1331,7 @@ function renderClubs() {
     <div class="note" style="margin-top:6px">Капитан: ${esc(c.leader)} · состав ${c.members.length}/${D.club_max}</div>
     <div style="margin-top:6px">${c.members.map(p => esc(p.nick)).join(' · ') || '<span class="note">состав пуст</span>'}</div></div>`).join('')
     + `<p class="note">В клубный зачёт идут очки всех пилотов клуба. Ушёл пилот — его очки уходят вместе с ним.</p>`
-    : '<div class="empty">Клубов пока нет. Капитан создаёт клуб в боте.</div>') + link('👥 Клуб в боте', 'club', 'btn ghost');
+    : '<div class="empty">Клубов пока нет. Капитан создаёт клуб в боте.</div>') + link('Клуб в боте', 'club', 'btn ghost');
 }
 // ---------- Картинка итогов этапа (для канала) ----------
 function fitFont(x, text, maxW, size, fam) {
@@ -764,15 +1409,16 @@ async function resultCard(sid) {
   document.getElementById('sheet').classList.add('open');
   const c = await drawResults(st);
   const url = c.toDataURL('image/jpeg', 0.9);
-  sheet.innerHTML = `<h3 style="margin-top:0">🖼 Итоги · ${esc(st.title)}</h3><img class="cardimg" alt="Итоги этапа" src="${url}">
+  sheet.innerHTML = `<h3 style="margin-top:0">Итоги · ${esc(st.title)}</h3><img class="cardimg" alt="Итоги этапа" src="${url}">
     <div class="note" id="cardst">${TG ? 'Отправляю в чат с ботом…' : 'Сохрани картинку и опубликуй в канале.'}</div>
-    ${TG ? '' : `<a class="btn" href="${url}" download="krc-itogi-${st.n}.jpg">⬇️ Скачать</a>`}
+    ${TG ? '' : `<a class="btn" href="${url}" download="krc-itogi-${st.n}.jpg">Скачать</a>`}
     <button class="btn ghost" onclick="closeSheet()">Закрыть</button>`;
   if (!TG) return;
   try {
     const r = await api({ act: 'card', sid, img: url });
-    document.getElementById('cardst').textContent = r.ok ? '✅ Картинка в чате с ботом — перешли её в канал.' : '❌ ' + (r.error || 'не получилось');
-  } catch (e) { document.getElementById('cardst').textContent = '❌ Нет связи с ботом — попробуй через минуту.'; }
+    document.getElementById('cardst').textContent = r.ok ? 'Готово: картинка в чате с ботом — перешли её в канал.' : 'Не получилось: ' + (r.error || 'ошибка');
+    hap(r.ok ? 'ok' : 'err');
+  } catch (e) { document.getElementById('cardst').textContent = 'Нет связи с ботом — попробуй через минуту.'; }
 }
 // Бот на бесплатном Render просыпается до минуты — картинку пробуем загрузить ещё несколько раз
 function imgRetry(img) {
@@ -820,15 +1466,15 @@ function carCheck(w, f, r) {
   const fits = row => axles.every(t => t[0] <= row[2] && t[2] <= row[3] && t[1] <= row[4]);
   const main = rules.main.filter(x => x[0] <= w && w <= x[1]), alt = (rules.alt || []).filter(x => x[0] <= w && w <= x[1]);
   if (!main.length && !alt.length) return ['', `Вес ${w} кг вне таблицы регламента — уточни у организаторов.`];
-  if (main.some(fits)) return ['ok', '✅ Подходит по основному регламенту.'];
-  if (alt.some(fits)) return ['ok', '✅ Подходит по альтернативному варианту.'];
+  if (main.some(fits)) return ['ok', '✓ Подходит по основному регламенту.'];
+  if (alt.some(fits)) return ['ok', '✓ Подходит по альтернативному варианту.'];
   const x = (main[0] || alt[0]), bad = [];
   (f.join() === r.join() ? [['колёса', f]] : [['перед', f], ['зад', r]]).forEach(([n, t]) => {
     if (t[0] > x[2]) bad.push(`${n}: ширина ${t[0]} > ${x[2]}`);
     if (t[2] > x[3]) bad.push(`${n}: диаметр R${t[2]} > R${x[3]}`);
     if (t[1] > x[4]) bad.push(`${n}: профиль ${t[1]} > ${x[4]}`);
   });
-  return ['bad', '❌ Не по регламенту: ' + bad.join('; ') + `. Максимум для ${x[0]}–${x[1]} кг: ${x[2]}/${x[4]} R${x[3]}.`];
+  return ['bad', '✗ Не по регламенту: ' + bad.join('; ') + `. Максимум для ${x[0]}–${x[1]} кг: ${x[2]}/${x[4]} R${x[3]}.`];
 }
 function carCalc() {
   const w = parseInt(document.getElementById('cw').value, 10);
@@ -846,20 +1492,20 @@ function renderRules() {
   const car = carK ? `${BOT_URL}/img/${encodeURIComponent(carK)}` : 'reg/car.jpg';
   const reg = typeof REGLAMENT === 'undefined' ? [] : REGLAMENT;
   document.getElementById('rules').innerHTML = `<h2>Регламент</h2>
-    <h3>🚗 Регламент авто</h3>
+    <h3>Регламент авто</h3>
     <a class="regcar" href="${car}" target="_blank" rel="noopener"><img alt="Колёсный регламент: ширина, диаметр и профиль шин по весу машины" src="${car}" onerror="imgRetry(this)"></a>
     <p class="note">Максимальные параметры колёс обеих осей по весу машины. Меньше — можно, больше — нельзя. Нажми на картинку, чтобы открыть крупно.</p>
-    <h3>🧮 Проверь свою машину</h3>
+    <h3>Проверь свою машину</h3>
     <div class="card"><div class="calc">
       <label>Вес, кг<input id="cw" inputmode="numeric" placeholder="1250" oninput="carCalc()"></label>
       <label>Перед<input id="cf" placeholder="275/35 R18" oninput="carCalc()"></label>
       <label>Зад<input id="cr" placeholder="как перед" oninput="carCalc()"></label></div>
       <div id="cres" class="cres">Введи вес и колёса — сверю с таблицей.</div>
-      ${TG ? '<div class="note" style="margin-top:8px">Чтобы проверка была видна в профиле и организаторам — укажи вес и колёса в боте: анкета → «📏 Вес и колёса».</div>' : ''}</div>
+      ${TG ? '<div class="note" style="margin-top:8px">Чтобы проверка была видна в профиле и организаторам — укажи вес и колёса в боте: анкета → «Вес и колёса».</div>' : ''}</div>
     ${r.text || (r.photos || []).length ? `<div class="card">${r.text ? `<div class="text">${esc(r.text)}</div>` : ''}
     <div class="photos">${(r.photos || []).map(k => `<img loading="lazy" alt="" src="${BOT_URL}/img/${encodeURIComponent(k)}">`).join('')}</div></div>` : ''}
-    ${reg.length ? `<h3>📖 ${REGLAMENT_TITLE}</h3>
-      <input class="regsearch" type="search" placeholder="🔍 Поиск: OMT, контакт, угол…" oninput="regSearch(this.value)">
+    ${reg.length ? `<h3>${REGLAMENT_TITLE}</h3>
+      <input class="regsearch" type="search" placeholder="Поиск: OMT, контакт, угол…" oninput="regSearch(this.value)">
       <div id="regfound" class="note"></div>
       <div id="reglist">${reg.map((x, i) => `<details class="reg" data-i="${i}"><summary>${x.t}</summary><div class="regbody">${x.h}</div></details>`).join('')}</div>` : ''}
     <h3>Как устроен чемпионат</h3><div class="card text">• Пилот регистрируется в боте соло или в составе клуба (до ${D.club_max} пилотов).
@@ -872,6 +1518,7 @@ function renderRules() {
 }
 
 show('home');
+fxIcon();
 load();
 loadMe();
 setInterval(() => { if (document.visibilityState === 'visible' && D && D.stages.some(s => s.state === 'run')) load(); }, 30000);
