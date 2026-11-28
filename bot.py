@@ -6,6 +6,7 @@ import re
 import sys
 import json
 import base64
+import calendar
 import time
 import hmac
 import hashlib
@@ -43,6 +44,7 @@ POINTS = [[1, 100], [2, 88], [3, 76], [4, 64], [8, 48], [16, 32], [32, 16], [64,
 CAR_RULES = {"main": [[1000, 1099, 245, 18, 35], [1100, 1199, 265, 18, 35], [1200, 1299, 275, 18, 35],
                       [1300, 1399, 295, 18, 35], [1400, 1499, 295, 19, 35]],
              "alt": [[1300, 1399, 285, 19, 35]]}
+CLASSES = {"pro": ("Pro", 30, 30, 40), "proam": ("Pro-Am", 40, 30, 30), "rookie": ("Rookie", 50, 30, 20)}
 # Причины решения судьи (по желанию) — видны пилотам и зрителям
 REASONS = {"lead": "лидер сильнее", "chase": "преследование сильнее", "line": "траектория",
            "angle": "угол и стиль", "zero": "крит. ошибка соперника", "contact": "контакт по вине соперника",
@@ -62,7 +64,8 @@ def fresh():
                         "car": {"text": "", "photos": []}},
             "seq": {"pid": 0, "club": 0, "stage": 0, "img": 0},
             "news": [], "season": {"n": 1, "name": "Сезон 1"}, "seasons": [], "vids": [], "banned": {},
-            "car_rules": json.loads(json.dumps(CAR_RULES))}
+            "car_rules": json.loads(json.dumps(CAR_RULES)), "channel": None, "warns": {}, "ach": {}, "bk_t": 0,
+            "duels": {}, "elo": {}, "djudges": []}
 
 
 S = fresh()
@@ -102,6 +105,9 @@ def load_state():
         S["content"].setdefault("car", {"text": "", "photos": []})
         if not S.get("car_rules"):
             S["car_rules"] = json.loads(json.dumps(CAR_RULES))
+        for k_, v_ in (("duels", {}), ("elo", {}), ("djudges", []), ("warns", {}), ("ach", {})):
+            if S.get(k_) is None:
+                S[k_] = v_
 
 
 def save_state():
@@ -350,6 +356,239 @@ def pick_table():
     return rows
 
 
+def url_btn(text, url):
+    return {"text": text, "url": url} if url else None
+
+
+def post_channel(text, rows=None):
+    ch = S.get("channel")
+    if not ch:
+        return 0
+    return send(ch["id"], text, kb(rows) if rows else None)
+
+
+def links(sid=None):
+    # кнопки для поста в канале: записаться в боте и открыть таблицы
+    return [[url_btn("✋ Записаться", f"https://t.me/{BOT_USERNAME}?start=rg_{sid}") if sid and BOT_USERNAME else None,
+             url_btn("📱 Сетка и таблицы", APP_URL)]]
+
+
+def set_channel(uid, chat_id, title):
+    me = int(TOKEN.split(":")[0]) if TOKEN.split(":")[0].isdigit() else 0
+    m = api("getChatMember", {"chat_id": chat_id, "user_id": me}).get("result")
+    if not isinstance(m, dict) or m.get("status") not in ("administrator", "creator") or m.get("can_post_messages") is False:
+        return send(uid, "Бот не админ в этом канале. Добавь его в администраторы с правом публиковать сообщения и попробуй ещё раз.")
+    S["channel"] = {"id": chat_id, "title": title or str(chat_id)}
+    user(uid).pop("aw", None)
+    log(uid, f"подключён канал {S['channel']['title']}")
+    send(uid, f"✅ Канал «{S['channel']['title']}» подключён. Бот будет публиковать: открытие регистрации, старт сетки, финал, итоги этапов и новости.")
+    return channel_menu(uid)
+
+
+def channel_menu(uid):
+    ch = S.get("channel")
+    rows = [[b("🔗 Подключить канал" if not ch else "🔁 Сменить канал", "chn:set")]]
+    if ch:
+        rows.append([b("🧪 Тестовый пост", "chn:test"), b("✖️ Отключить", "chn:off")])
+    rows.append([b("⬅️ Назад", "m:org")])
+    send(uid, "📣 Канал чемпионата: " + (f"«{ch['title']}»" if ch else "не подключён")
+         + "\n\nБот сам публикует: открытие регистрации, старт сетки, финал, итоги этапов (тестовые этапы — нет) и новости.", kb(rows))
+
+
+def backup(uid=None):
+    data = json.dumps(S, ensure_ascii=False).encode()
+    name = time.strftime("krc-backup-%Y-%m-%d.json", time.gmtime(time.time() + MSK))
+    for o in ([uid] if uid else sorted(OWNER_IDS)):
+        send_file(o, name, data, "💾 Резервная копия данных чемпионата. Храни у себя — пригодится, если что-то случится с базой.")
+    S["bk_t"] = int(time.time())
+
+
+def top_text():
+    tot = season_points()
+    pil = sorted(((v, u) for u, v in tot.items() if v and u in S["pilots"]), key=lambda x: -x[0])[:10]
+    clubs = sorted(((club_points(cid, tot), c["name"]) for cid, c in S["clubs"].items()), key=lambda x: -x[0])[:5]
+    out = f"🏆 {TITLE} · {S['season']['name']}\n\nЛичный зачёт:\n"
+    out += "\n".join(f"{i + 1}. {nick(int(u))}" + (f" ({club_of(int(u))['name']})" if club_of(int(u)) else "") + f" — {v}"
+                     for i, (v, u) in enumerate(pil)) or "пока пусто"
+    if any(v for v, _ in clubs):
+        out += "\n\nКлубы:\n" + "\n".join(f"{i + 1}. {n} — {v}" for i, (v, n) in enumerate(clubs) if v)
+    return out
+
+
+# ---------- предупреждения (регламент, п. 5.6.1) ----------
+def season_warns(uid):
+    return [w for w in S.get("warns", {}).get(str(uid), []) if w.get("season", 1) == cur_season()]
+
+
+def warn(uid, why, who=None):
+    S.setdefault("warns", {}).setdefault(str(uid), []).append({"t": int(time.time()), "why": why[:200], "by": who, "season": cur_season()})
+    n = len(season_warns(uid))
+    send(uid, f"⚠️ Предупреждение от организаторов {TITLE}: {why[:200]}\n\nВ этом сезоне предупреждений: {n}. "
+              "По регламенту (п. 5.6.1) дальше идут замечание, отказ в старте и исключение.")
+    if n >= 2:
+        orgs_dm(f"⚠️ У {nick(uid)} уже {n} предупреждения в сезоне — по регламенту можно переходить к следующей санкции.")
+    log(who, f"предупреждение {nick(uid)}: {why[:80]}")
+
+
+DUEL_K = 32  # насколько сильно меняется рейтинг за дуэль (Эло)
+ACH = {"win1": "Первая победа", "omt": "Победа после OMT", "podium": "Подиум этапа", "stage": "Победа на этапе",
+       "top4x3": "Три этапа в топ-4", "fan": "Пара этапа", "clean": "Чистый сезон", "duel3": "Дуэлянт: 3 победы",
+       "elo1100": "Рейтинг дуэлей 1100+", "pick10": "Прогнозист: 10 угаданных"}
+
+
+def achievements(uid):
+    u, got = str(uid), []
+    stages = [st for st in S["stages"].values() if not st.get("test")]
+    wins = [m for st in stages for m in st["matches"] if m["done"] and not m["bye"] and m.get("w") == uid and not m.get("manual")]
+    if wins:
+        got.append("win1")
+    if any(m.get("omt") for m in wins):
+        got.append("omt")
+    places = [st["places"][u] for st in stages if st["state"] == "done" and u in st.get("places", {})]
+    if any(x <= 3 for x in places):
+        got.append("podium")
+    if 1 in places:
+        got.append("stage")
+    if sum(1 for x in places if x <= 4) >= 3:
+        got.append("top4x3")
+    if fan_badges(uid):
+        got.append("fan")
+    cur = [st for st in stages if st["state"] == "done" and st.get("season", 1) == cur_season() and u in st.get("places", {})]
+    if len(cur) >= 3 and not any(u in st.get("dsq", {}) for st in cur) and not season_warns(uid):
+        got.append("clean")
+    if sum(1 for d in S.get("duels", {}).values() if d["state"] == "done" and d.get("w") == uid) >= 3:
+        got.append("duel3")
+    if elo(uid) >= 1100:
+        got.append("elo1100")
+    if next((r["ok"] for r in pick_table() if r["uid"] == uid), 0) >= 10:
+        got.append("pick10")
+    return got
+
+
+def check_ach(uid):
+    # новые достижения — в личку; при первом запуске старые записываем молча, чтобы никого не завалить сообщениями
+    store = S.setdefault("ach", {})
+    if not S.get("ach_init"):
+        for x in S["pilots"]:
+            store[x] = achievements(int(x))
+        S["ach_init"] = 1
+    have = store.setdefault(str(uid), [])
+    new = [a for a in achievements(uid) if a not in have]
+    for a in new:
+        have.append(a)
+        send(uid, f"🏅 Новое достижение: {ACH[a]}! Оно уже в твоём профиле в приложении.")
+    return bool(new)
+
+
+def ach_sweep(now):
+    # раз в час: достижения, которые появляются не сразу (пара этапа от зрителей, прогнозы)
+    if now - S.get("ach_t", 0) < 3600:
+        return False
+    S["ach_t"] = int(now)
+    for x in list(S["pilots"]):
+        check_ach(int(x))
+    return True
+
+
+def stg(sid):  # этап или дуэль — у них одинаковое устройство пары
+    return S["stages"].get(sid) or S.get("duels", {}).get(sid)
+
+
+def elo(uid):
+    return S.get("elo", {}).get(str(uid), 1000)
+
+
+def duel_of(uid, states=("ask", "run")):
+    return next((d for d in S.get("duels", {}).values() if d["state"] in states and uid in (d["a"], d["b"])), None)
+
+
+def duel_judges(a, bb):
+    js = [j for j in (S.get("djudges") or []) if j not in (a, bb)]
+    if not js:
+        js = [j for j in sorted(OWNER_IDS) + list(S["orgs"]) if j not in (a, bb)]
+    return list(dict.fromkeys(js))
+
+
+def in_stage_now(uid):
+    for st in S["stages"].values():
+        if st["state"] == "qual" and uid in st["reg"]:
+            return True
+        if st["state"] == "run" and any(m["open"] and not m["done"] and uid in (m["pa"], m["pb"]) for m in st["matches"]):
+            return True
+    return False
+
+
+def duel_new(a, bb):
+    did = f"d{next_id('duel')}"
+    m = {"id": "D", "name": "Дуэль", "a": {}, "b": {}, "pa": a, "pb": bb, "done": False, "bye": False, "open": 0,
+         "tries": [], "omt": 0, "w": None, "l": None}
+    d = {"id": did, "title": f"Дуэль {nick(a)} vs {nick(bb)}", "a": a, "b": bb, "state": "ask", "t": int(time.time()),
+         "judges": [], "jn": 1, "matches": [m], "dl": 0, "pw": 0, "duel": True, "fans": {}, "qruns": {}, "reg": [a, bb],
+         "tz": {}, "dsq": {}}
+    S["duels"][did] = d
+    return d
+
+
+def duel_go(d):
+    d.update(state="run", go=int(time.time()), judges=duel_judges(d["a"], d["b"]))
+    m = d["matches"][0]
+    m["open"] = int(time.time())
+    for me, opp in ((d["a"], d["b"]), (d["b"], d["a"])):
+        send(me, f"⚔️ Дуэль: {nick(me)} vs {nick(opp)} — рейтинг {elo(me)} против {elo(opp)}.\n"
+                 f"Связь с соперником: {contact(opp)}\n\nТрассу и задание выбираете сами. Катайте и пришлите боту 2 видео — "
+                 "в одном ведёт один, в другом другой. Судья решит по регламенту.", kb([[dm_button(opp)]]))
+    if not d["judges"]:
+        orgs_dm(f"⚔️ {d['title']}: нет судей для дуэлей — добавь их в «⚔️ Дуэли».")
+
+
+def duel_done(d, m):
+    w, l_ = m["w"], m["l"]
+    rw, rl = elo(w), elo(l_)
+    k = max(1, round(DUEL_K * (1 - 1 / (1 + 10 ** ((rl - rw) / 400)))))
+    S["elo"][str(w)], S["elo"][str(l_)] = rw + k, rl - k
+    d.update(state="done", w=w, l=l_, delta=k, done_t=int(time.time()))
+    send(w, f"⚔️ Рейтинг дуэлей: {rw + k} (+{k})")
+    send(l_, f"⚔️ Рейтинг дуэлей: {rl - k} (−{k})")
+    log(None, f"{d['title']}: {nick(w)} > {nick(l_)}, ±{k}")
+
+
+def duel_menu(uid):
+    if not pilot(uid):
+        return send(uid, "Сначала стань пилотом: /menu → «Стать пилотом».")
+    d = duel_of(uid)
+    txt, rows = f"⚔️ Рейтинговые дуэли\nТвой рейтинг: {elo(uid)}\n\n", []
+    if d and d["state"] == "ask":
+        if d["b"] == uid:
+            txt += f"{nick(d['a'])} ({elo(d['a'])}) вызывает тебя на дуэль."
+            rows.append([b("✅ Принять", f"dl:ok:{d['id']}"), b("❌ Отказаться", f"dl:no:{d['id']}")])
+        else:
+            txt += f"Ждём ответа от {nick(d['b'])} — до суток."
+            rows.append([b("↩️ Отменить вызов", f"dl:no:{d['id']}")])
+    elif d:
+        m, opp = d["matches"][0], d["b"] if d["a"] == uid else d["a"]
+        txt += f"Идёт дуэль с {nick(opp)}.\nСтатус: {pair_status(d, m)[1]}\nСвязь: {contact(opp)}"
+        rows.append([dm_button(opp)])
+    else:
+        txt += ("Вызови любого пилота: трассу и задание выбираете сами, судья решает по регламенту. "
+                "Победа поднимает рейтинг, поражение — опускает; за победу над сильным — больше.")
+        rows.append([b("🎯 Вызвать пилота", "dl:new")])
+    rows.append([b("⬅️ Меню", "m:home")])
+    return send(uid, txt, kb(rows))
+
+
+def duel_tick(now):
+    changed = False
+    for d in S.get("duels", {}).values():
+        if d["state"] == "ask" and now - d["t"] > 86400:
+            d["state"], changed = "off", True
+            send(d["a"], f"⌛ {nick(d['b'])} не ответил на вызов — дуэль отменена.")
+        elif d["state"] == "run" and not d["matches"][0]["tries"] and now - d.get("go", d["t"]) > 3 * 86400:
+            d["state"], changed = "off", True
+            for x in (d["a"], d["b"]):
+                send(x, "⌛ За трое суток никто не сдал видео — дуэль отменена.")
+    return changed
+
+
 def club_of(uid):
     p = pilot(uid)
     return S["clubs"].get(p["club"]) if p and p.get("club") else None
@@ -526,6 +765,14 @@ def finish_stage(st):
     orgs_dm(head + ("\n\n🧪 Тестовый этап — очки не начислялись." if st.get("test") else "\n\nОчки начислены, таблицы в приложении обновлены.")
             + f"\nЗрители {FAN_HOURS} ч голосуют в приложении за пару этапа.")
     log(None, f"{st['title']} завершён")
+    if not st.get("test"):
+        for u in st["places"]:
+            check_ach(int(u))
+    if not st.get("test"):
+        rows = sorted(st["places"].items(), key=lambda x: x[1])[:8]
+        post_channel(f"🏁 Итоги · {st['title']}\n\n" + "\n".join(
+            f"{medals[i] if i < 3 else str(p) + '.'} {nick(int(u))} — +{st['pts'][u]}" for i, (u, p) in enumerate(rows))
+            + "\n\nТаблицы сезона обновлены.", links())
 
 
 # ---------- Этапы ----------
@@ -539,9 +786,59 @@ def new_stage(d):
           "qual": d["qual"], "jn": d["jn"], "judges": [], "state": "draft", "reg": [], "qruns": {}, "seeds": [],
           "matches": [], "tz": {}, "places": {}, "pts": {}, "created": int(time.time()), "dl": d.get("dl", 0),
           "pw": d.get("pw", 0), "season": cur_season(), "test": d.get("test", False), "appr": d.get("appr", False),
-          "pend": [], "dsq": {}, "sched": "", "fans": {}}
+          "pend": [], "dsq": {}, "sched": "", "fans": {}, "start": d.get("start"), "cls": d.get("cls", "proam")}
     S["stages"][sid] = st
     return st
+
+
+MSK = 3 * 3600
+MONTHS = {"янв": 1, "фев": 2, "мар": 3, "апр": 4, "мая": 5, "май": 5, "июн": 6, "июл": 7, "авг": 8, "сен": 9,
+          "окт": 10, "ноя": 11, "дек": 12}
+MONTHS_GEN = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"]
+
+
+def parse_start(text, now=None):
+    # «25.11 19:00», «25.11.2026 19:00», «25 ноября 19:00» — время по Москве; не понял — None
+    now = now or time.time()
+    t = text.lower()
+    tm = re.findall(r"(?<![\d.])(\d{1,2}):(\d{2})(?!\d)", t)
+    if not tm:
+        return None
+    hh, mi = int(tm[-1][0]), int(tm[-1][1])
+    y = time.gmtime(now + MSK).tm_year
+    dm = re.search(r"(?<![\d:])(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?(?![\d:])", t)
+    if dm:
+        d, mo = int(dm.group(1)), int(dm.group(2))
+        if dm.group(3):
+            y = int(dm.group(3)) + (2000 if len(dm.group(3)) == 2 else 0)
+    else:
+        dw = re.search(r"(\d{1,2})\s+(янв|фев|мар|апр|мая|май|июн|июл|авг|сен|окт|ноя|дек)", t)
+        if not dw:
+            return None
+        d, mo = int(dw.group(1)), MONTHS[dw.group(2)]
+    if not (1 <= mo <= 12 and 1 <= d <= 31 and hh < 24 and mi < 60):
+        return None
+    try:
+        ts = calendar.timegm((y, mo, d, hh, mi, 0)) - MSK
+    except (ValueError, OverflowError):
+        return None
+    if not dm or not dm.group(3):
+        if ts < now - 2 * 86400:  # дата уже прошла — значит, следующий год
+            ts = calendar.timegm((y + 1, mo, d, hh, mi, 0)) - MSK
+    return ts
+
+
+def cls_of(st):
+    return CLASSES.get(st.get("cls") or "proam", CLASSES["proam"])
+
+
+def cls_text(c):
+    return f"{c[0]} (траектория {c[1]} · угол {c[2]} · стиль {c[3]})"
+
+
+def fmt_start(ts):
+    g = time.gmtime(ts + MSK)
+    return f"{g.tm_mday} {MONTHS_GEN[g.tm_mon - 1]}, {g.tm_hour:02d}:{g.tm_min:02d} МСК"
 
 
 STATE_RU = {"draft": "черновик", "reg": "регистрация", "qual": "квалификация", "run": "идут парные заезды",
@@ -553,6 +850,8 @@ def stage_desc(st):
           f"{'с квалификацией' if st['qual'] else 'без квалификации'} · судей: {st['jn']}\n" \
           f"Дедлайн на пару: {str(st.get('dl', 0)) + ' мин' if st.get('dl') else 'нет'} · " \
           f"протесты: {'в течение ' + str(st.get('pw', 0)) + ' мин' if st.get('pw') else 'нет'}"
+    if st["qual"]:
+        fmt += f"\nКвалификация: класс {cls_text(cls_of(st))}"
     return (f"{'🧪' if st.get('test') else '🏁'} {st['title']}" + (" (тест, без очков)" if st.get("test") else "")
             + (f" · {st['date']}" if st.get("date") else "") + f"\n{fmt}\nСтатус: {STATE_RU[st['state']]}" + (" (закрыта)" if st["state"] == "reg" and st.get("closed") else "")
             + f"\nЗаписано: {len(st['reg'])}" + (f"\nСудьи: {', '.join(nick(j) for j in st['judges'])}" if st["judges"] else
@@ -568,6 +867,9 @@ def active_for(uid):
             m = next((m for m in st["matches"] if m["open"] and not m["done"] and uid in (m["pa"], m["pb"])), None)
             if m:
                 return st, m
+    d = duel_of(uid, ("run",))
+    if d and not d["matches"][0]["done"]:
+        return d, d["matches"][0]
     return None, None
 
 
@@ -629,6 +931,12 @@ def readiness(st):
     rows.append(("✅" if n >= 2 else "❌") + f" Записано пилотов: {n}" + (f" (в сетку войдут {st['size']})" if n > st["size"] and not st["qual"] else ""))
     if st.get("pend"):
         rows.append(f"⚠️ Заявок ждут решения: {len(st['pend'])}")
+    if st.get("start"):
+        left = st["start"] - time.time()
+        rows.append(f"📅 Старт: {fmt_start(st['start'])}" + (f" · отметились на месте: {len(st.get('ci', []))} из {len(st['reg'])}"
+                                                             if left < 3 * 3600 else ""))
+    else:
+        rows.append("📅 Время старта не задано — без него не будет напоминаний (⚙️ Настройки → 📅 Дата)")
     notok = [x for x in st["reg"] if car_check((pilot(x) or {}).get("spec"))[0] != "ok"]
     if notok:
         rows.append(f"⚠️ Машина не проверена или не по регламенту: {len(notok)} (список — «👥 Участники»)")
@@ -683,6 +991,8 @@ def send_tz(uid, st, kind):
 
 
 def notify_open(st, m):
+    if m["id"] == st.get("final") and not st.get("test") and not st.get("duel"):
+        post_channel(f"🔥 Финал · {st['title']}: {nick(m['pa'])} vs {nick(m['pb'])}", links())
     for me, opp in ((m["pa"], m["pb"]), (m["pb"], m["pa"])):
         send(me, f"⚔️ {st['title']} · {m['name']}\nТвоя пара: {nick(me)} vs {nick(opp)}\nСвязь с соперником: {contact(opp)}\n\n"
                  "Катайте по ТЗ и пришлите боту 2 видео: одно, где ведёт один пилот, и второе, где ведёт другой. "
@@ -728,6 +1038,11 @@ def qual_judge(cq, sid, uid, act):
     elif act == "fix":
         user(j)["aw"] = f"qfix:{sid}:{uid}"
         send(j, f"Напиши правильный счёт для {nick(uid)} (число):")
+    elif act == "crit":
+        c = cls_of(st)
+        user(j)["aw"] = f"qcrit:{sid}:{uid}"
+        send(j, f"📐 Оценки {nick(uid)} по регламенту ({c[0]}) — три числа через пробел:\n"
+                f"траектория (из {c[1]}), угол (из {c[2]}), стиль (из {c[3]}).\nНапример: {c[1] - 6} {c[2] - 4} {c[3] - 5}")
     answer(cq)
 
 
@@ -775,7 +1090,7 @@ def up_kb(up):
 def upload_cb(cq, act, arg):
     uid = cq["from"]["id"]
     up = user(uid).get("up")
-    st = S["stages"].get(up["sid"]) if up else None
+    st = stg(up["sid"]) if up else None
     m = mget(st, up["mid"]) if st else None
     if not m or m["done"] or st["state"] != "run":
         user(uid).pop("up", None)
@@ -845,7 +1160,7 @@ def send_qual(st, uid, run, j):
                       "caption": f"⏱ Квалификация · {st['title']}\nПилот: {nick(uid)}\nЗаявлено очков: {run['score']:g}"})
     run["jm"][str(j)] = send(j, f"Квалификация {nick(uid)}: {run['score']:g} очков. Проверь видео по ТЗ.",
                              kb([[b("✅ Засчитать", f"jq:{st['id']}:{uid}:ok"), b("✏️ Исправить счёт", f"jq:{st['id']}:{uid}:fix")],
-                                 [b("❌ Не по ТЗ", f"jq:{st['id']}:{uid}:no")]]))
+                                 [b("📐 По критериям", f"jq:{st['id']}:{uid}:crit"), b("❌ Не по ТЗ", f"jq:{st['id']}:{uid}:no")]]))
 
 
 def judge_queue(j, sid=None):
@@ -859,6 +1174,11 @@ def judge_queue(j, sid=None):
         else:
             out += [("b", st, m, try_open(m)) for m in st["matches"]
                     if not m["done"] and try_open(m) and j in eligible(st, m) and str(j) not in try_open(m)["votes"]]
+    for d in S.get("duels", {}).values():
+        m = d["matches"][0]
+        if d["state"] == "run" and j in d["judges"] and (not sid or d["id"] == sid) and not m["done"] and try_open(m) \
+                and j in eligible(d, m) and str(j) not in try_open(m)["votes"]:
+            out.append(("b", d, m, try_open(m)))
     return out
 
 
@@ -895,7 +1215,7 @@ def reason_kb(st, m, ti):
 
 def judge_reason(cq, sid, mid, ti, code):
     j = cq["from"]["id"]
-    st = S["stages"].get(sid)
+    st = stg(sid)
     m = mget(st, mid) if st else None
     t = m["tries"][int(ti)] if m and int(ti) < len(m["tries"]) else None
     if not t or str(j) not in t["votes"] or code not in REASONS:
@@ -923,7 +1243,7 @@ def decide(st, m, t):
 
 def judge_vote(cq, sid, mid, ti, c):
     j = cq["from"]["id"]
-    st = S["stages"].get(sid)
+    st = stg(sid)
     m = mget(st, mid) if st else None
     if not m or j not in st["judges"]:
         return answer(cq, "Ты не судья этого этапа.", True)
@@ -963,13 +1283,18 @@ def judge_vote(cq, sid, mid, ti, c):
              + (f"\n\nНе согласен? Протест можно подать в течение {pw} мин." if pw else ""),
              kb([[b("📣 Подать протест", f"pr:{st['id']}:{m['id']}")]]) if pw else None)
     log(None, f"{st['title']} · {m['name']}: {nick(win)} > {nick(lose)}")
+    if st.get("duel"):
+        duel_done(st, m)
+        return check_ach(win)
+    if not st.get("test"):
+        check_ach(win)
     advance(st)
     notify_next(st)
 
 
 def withdraw(cq, sid, mid, ti):
     uid = cq["from"]["id"]
-    st = S["stages"].get(sid)
+    st = stg(sid)
     m = mget(st, mid) if st else None
     t = m["tries"][int(ti)] if m and int(ti) < len(m["tries"]) else None
     if not t or t["by"] != uid or t["res"] is not None or m["done"]:
@@ -1023,6 +1348,8 @@ def protest_start(cq, sid, mid):
     m = mget(st, mid) if st else None
     if not m or not m["done"] or m["l"] != uid:
         return answer(cq, "Протест может подать только проигравший в этой паре.", True)
+    if m.get("manual"):
+        return answer(cq, "Результат поставил организатор (техническое решение) — протест по нему не подаётся.", True)
     if not st.get("pw") or time.time() - m.get("dec_t", 0) > st["pw"] * 60:
         return answer(cq, "Время на протест вышло.", True)
     if m.get("protest"):
@@ -1090,6 +1417,7 @@ def post_news(uid, text):
     del S["news"][30:]
     for x in list(S["pilots"]):
         send(int(x), f"📰 {TITLE}\n\n{text[:2000]}", kb([app_row()]))
+    post_channel(f"📰 {text[:2000]}", links())
     log(uid, "новость опубликована")
 
 
@@ -1239,9 +1567,17 @@ def card_prepare(req):
     uid = u["id"]
     if time.time() - _card_t.get(uid, 0) < 20:
         return None, "Подожди немного — картинку можно присылать раз в 20 секунд"
-    st = S["stages"].get(str(req.get("sid")))
-    if not st or st["state"] != "done":
-        return None, "Этап ещё не завершён"
+    if req.get("kind") == "pilot":  # карточка пилота
+        pu = uid_by_pid(req.get("pid"))
+        if not pu:
+            return None, "Пилота нет"
+        cap = f"🏎 {nick(pu)} · карточка пилота\n{TITLE}"
+    else:
+        st = S["stages"].get(str(req.get("sid")))
+        if not st or st["state"] != "done":
+            return None, "Этап ещё не завершён"
+        cap = f"🏁 Итоги · {st['title']}\n{TITLE}"
+    cap += f"\n@{BOT_USERNAME}" if BOT_USERNAME else ""
     raw = str(req.get("img") or "")
     if raw.startswith("data:"):
         raw = raw.split(",", 1)[-1]
@@ -1252,7 +1588,11 @@ def card_prepare(req):
     if not data.startswith(b"\xff\xd8") or len(data) > 5_000_000:
         return None, "Картинка не подходит"
     _card_t[uid] = time.time()
-    return (uid, data, f"🏁 Итоги · {st['title']}\n{TITLE}" + (f"\n@{BOT_USERNAME}" if BOT_USERNAME else "")), None
+    if req.get("to") == "channel":
+        if not is_org(uid) or not S.get("channel"):
+            return None, "Публиковать в канал может организатор, и канал должен быть подключён"
+        return (S["channel"]["id"], data, cap), None
+    return (uid, data, cap), None
 
 
 def send_photo(chat, data, caption=""):
@@ -1299,7 +1639,7 @@ def set_result(st, m, side, who=None):
     if m["done"] or not m["open"] or m["pa"] is None or m["pb"] is None:
         return "Эта пара ещё не началась или уже решена."
     win, lose = (m["pa"], m["pb"]) if side == "a" else (m["pb"], m["pa"])
-    m.update(done=True, w=win, l=lose, manual=True)
+    m.update(done=True, w=win, l=lose, manual=True, dec_t=int(time.time()))
     log(who, f"{st['title']} · {m['name']}: вручную {nick(win)} > {nick(lose)}")
     for p in (win, lose):
         send(p, f"⚖️ Организатор поставил результат · {m['name']}: побеждает {nick(win)}.")
@@ -1348,6 +1688,8 @@ def start_bracket(st, seeds, who=None):
     for u in out:
         send(u, f"{st['title']}: в сетку топ-{st['size']} ты не прошёл. Спасибо за участие!")
     log(who, f"{st['title']}: построена сетка на {len(st['seeds'])}")
+    if not st.get("test"):
+        post_channel(f"🏎 {st['title']}: сетка готова — {len(st['seeds'])} пилотов. Пары уже едут!", links())
     advance(st)
     return "ok"
 
@@ -1385,7 +1727,7 @@ def public_data():
             matches.append({"id": m["id"], "name": m["name"], "a": pub_pilot(m["pa"]), "b": pub_pilot(m["pb"]),
                             "sa": seeds.get(m["pa"]), "sb": seeds.get(m["pb"]),
                             "w": "a" if m["w"] is not None and m["w"] == m["pa"] else "b" if m["w"] is not None else None,
-                            "done": m["done"], "bye": m["bye"], "live": bool(m["open"] and not m["done"]),
+                            "done": m["done"], "bye": m["bye"], "live": bool(m["open"] and not m["done"]), "dt": m.get("dec_t"),
                             "judging": bool(try_open(m)) and not m["done"], "omt": m["omt"], "tries": tries, "manual": m.get("manual", False),
                             "picks": [sum(1 for v in pk.values() if v == "a"), sum(1 for v in pk.values() if v == "b")],
                             "pick_open": bool(pick_open(st, m)),
@@ -1393,11 +1735,12 @@ def public_data():
                             "protest": {"by": nick(m["protest"]["by"]), "why": m["protest"]["why"], "res": m["protest"]["res"],
                                         "votes": [[nick(int(j)), v] for j, v in m["protest"]["votes"].items()] if m["protest"]["res"] else []}
                             if m.get("protest") else None})
-        qual = sorted(([nick(int(u)), r["score"], r["st"]] for u, r in st["qruns"].items()), key=lambda x: (x[2] != "ok", -x[1]))
+        qual = sorted(([nick(int(u)), r["score"], r["st"], r.get("crit")] for u, r in st["qruns"].items()), key=lambda x: (x[2] != "ok", -x[1]))
         stages.append({"id": st["id"], "n": st["n"], "title": st["title"], "date": st.get("date", ""), "state": st["state"],
                        "size": st["size"], "de": st["de"], "qual": st["qual"], "jn": st["jn"], "dl": st.get("dl", 0),
                        "pw": st.get("pw", 0), "season": st.get("season", 1), "test": st.get("test", False),
-                       "appr": st.get("appr", False), "closed": bool(st.get("closed")), "sched": st.get("sched", ""),
+                       "appr": st.get("appr", False), "closed": bool(st.get("closed")),
+                       "start": st.get("start"), "ci": len(st.get("ci", [])), "cls": st.get("cls", "proam"), "w": list(cls_of(st)), "sched": st.get("sched", ""),
                        "dsq": [[nick(int(u)), why] for u, why in st.get("dsq", {}).items()],
                        "fans": {mid: sum(1 for v in st.get("fans", {}).values() if v == mid) for mid in set(st.get("fans", {}).values())},
                        "fan_open": fan_open(st), "fan_until": st.get("done_t", 0) + FAN_HOURS * 3600 if st.get("done_t") else None,
@@ -1426,6 +1769,9 @@ def public_data():
                        "best": min((h[1] for h in hist), default=None), "w": w, "l": l, "hist": hist, "num": p.get("num"),
                        "car": p.get("car", ""), "photo": p.get("photo", {}).get("k"), "fan": fan_badges(int(u)),
                        "spec": spec_text(p.get("spec")), "carok": car_check(p.get("spec"))[0], "carwhy": car_check(p.get("spec"))[1],
+                       "warns": [w["why"] for w in season_warns(int(u))], "elo": elo(int(u)), "ach": achievements(int(u)),
+                       "dw": sum(1 for d in S.get("duels", {}).values() if d["state"] == "done" and d["w"] == int(u)),
+                       "dl": sum(1 for d in S.get("duels", {}).values() if d["state"] == "done" and d["l"] == int(u)),
                        "banned": S["banned"].get(u)})
     pilots.sort(key=lambda x: (-x["pts"], x["best"] or 999, x["nick"].lower()))
     clubs = [{"id": c["id"], "name": c["name"], "leader": nick(c["leader"]), "members": [pub_pilot(u) for u in c["members"]],
@@ -1435,7 +1781,12 @@ def public_data():
     return {"title": TITLE, "bot": BOT_USERNAME, "stages": stages, "pilots": pilots, "clubs": clubs, "content": content,
             "points": S["points"], "club_max": CLUB_MAX, "season": S["season"], "seasons": S["seasons"][::-1],
             "news": S["news"][:10], "car_rules": S.get("car_rules") or CAR_RULES,
-            "pickers": [{k: v for k, v in r.items() if k != "uid"} for r in pick_table()[:20]]}
+            "pickers": [{k: v for k, v in r.items() if k != "uid"} for r in pick_table()[:20]],
+            "channel": bool(S.get("channel")),
+            "duels": [{"id": d["id"], "a": pub_pilot(d["a"]), "b": pub_pilot(d["b"]), "state": d["state"], "t": d.get("done_t") or d["t"],
+                       "w": ("a" if d["w"] == d["a"] else "b") if d.get("w") else None, "delta": d.get("delta"),
+                       "judging": bool(try_open(d["matches"][0])) and not d["matches"][0]["done"]}
+                      for d in sorted(S.get("duels", {}).values(), key=lambda x: -x["t"]) if d["state"] in ("run", "done")][:25]}
 
 
 # ---------- Меню ----------
@@ -1445,8 +1796,11 @@ HELP = ("🏁 Khinkali Racing Championship — чемпионат по дриф�
         "• Квалификация — видео соло-заезда по ТЗ и твой счёт; судьи проверяют.\n"
         "• Парные заезды — 2 видео (ведёт один, потом другой). Сдаёт любой из пары. Судьи решают: победа или OMT.\n"
         "• Сетки, таблицы, регламент и прогнозы на пары — в приложении.\n"
-        "• В анкете укажи вес и колёса — бот сам сверит машину с колёсным регламентом.\n\n"
-        "/menu — главное меню · /club — клуб · /stages — этапы · /cancel — отменить ввод · /myid — твой ID")
+        "• В анкете укажи вес и колёса — бот сам сверит машину с колёсным регламентом.\n"
+        "• Перед стартом бот напомнит за сутки и за час — отметься «Я на месте».\n"
+        "• Между этапами — рейтинговые дуэли: вызови любого пилота, судья решит, рейтинг пересчитается.\n\n"
+        "/menu — главное меню · /stages — этапы · /club — клуб · /duel — дуэли · /top — таблица сезона · "
+        "/cancel — отменить ввод · /myid — твой ID")
 
 
 def reg_button(uid, st, short=False):
@@ -1467,13 +1821,18 @@ def home(uid, chat=None, mid=None):
     text = (f"🏁 {TITLE}\n\n" + (f"Пилот: {p['nick']} · {('клуб ' + c['name']) if c else 'соло'}" if p else "Ты ещё не пилот.")
             + ("\n\nСейчас: " + "; ".join(f"{s['title']} — {STATE_RU[s['state']]}" for s in open_st) if open_st else ""))
     rows = [[x] for x in (reg_button(uid, s_) for s_ in open_st if s_["state"] == "reg") if x][:2] if p else []
+    for s_ in open_st:
+        if p and s_.get("start") and uid in s_["reg"] and uid not in s_.get("ci", []) and 0 < s_["start"] - time.time() < 7200:
+            rows.insert(0, [b(f"✅ Я на месте — {s_['title']}", f"ci:{s_['id']}")])
     a_st, a_m = active_for(uid) if p else (None, None)
     if a_st:
         rows.insert(0, [b(f"⚔️ Моя пара: vs {nick(a_m['pb'] if a_m['pa'] == uid else a_m['pa'])}" if a_m else "⏱ Моя квалификация", "m:pair")])
     rows += [[b("✏️ Мой ник" if p else "🏎 Стать пилотом", "m:pilot"), b("🏁 Этапы", "m:stages")],
             [b("🪪 Анкета: номер, машина, фото", "m:card")] if p else None,
             [b("👥 Клуб", "m:club"), b("❓ Как это работает", "m:help")], app_row(),
-            [b(f"⚖️ Судейство: ждут решения {len(judge_queue(uid))}", "jr")] if any(uid in s_["judges"] for s_ in open_st) else None,
+            [b(f"⚖️ Судейство: ждут решения {len(judge_queue(uid))}", "jr")]
+            if any(uid in s_["judges"] for s_ in open_st) or judge_queue(uid) else None,
+            [b(f"⚔️ Дуэли · рейтинг {elo(uid)}", "m:duel")] if p else None,
             [b("⚙️ Организатор", "m:org")] if is_org(uid) else None]
     if mid:
         edit(chat, mid, text, kb(rows))
@@ -1586,8 +1945,10 @@ def org_menu(uid):
     rows = [[b(f"{'📝' if st['state'] == 'draft' else '🏁'} {st['title']} · {STATE_RU[st['state']]}", f"sm:{st['id']}")]
             for st in sts[-10:]]
     rows += [[b("➕ Новый этап", "st:new"), b("👥 Клубы", "oc:list")], [b("📜 Регламент", "ct:rules"), b("ℹ️ О чемпионате", "ct:about")],
-             [b("📰 Новости", "nw"), b("🔢 Очки", "pt")], [b("⛔ Отстранения", "bn"), b("📊 Судьи", "js")],
+             [b("📰 Новости", "nw"), b("🔢 Очки", "pt")], [b("⛔ Отстранения", "bn"), b("⚠️ Предупреждения", "wn")],
+             [b("📊 Судьи", "js"), b("⚔️ Дуэли", "du")],
              [b("👔 Организаторы", "og:list"), b("🏆 Сезон", "ss")] if is_owner(uid) else None,
+             [b("📣 Канал", "chn"), b("💾 Бэкап", "bk")] if is_owner(uid) else None,
              [b("🚗 Фото регламента авто", "rc")] if uid == CAR_ADMIN else None, app_row()]
     send(uid, f"⚙️ Организатор · {S['season']['name']}: этапы, регламент, судьи.", kb(rows))
 
@@ -1598,6 +1959,7 @@ def draft_text(d):
             + f"\nСудей: {d['jn']}\nДедлайн на пару: {str(d.get('dl', 0)) + ' мин' if d.get('dl') else 'нет'}"
             + f"\nПротесты: {'в течение ' + str(d.get('pw', 0)) + ' мин после решения' if d.get('pw') else 'нет'}"
             + f"\nЗаявки: {'одобряет организатор' if d.get('appr') else 'сразу в списке'}"
+            + (f"\nКласс для квалификации: {cls_text(CLASSES.get(d.get('cls') or 'proam'))}" if d.get("qual") else "")
             + ("\n🧪 Тестовый этап — очки не начисляются." if d.get("test") else "") + "\nЗаезд за 3-е место есть всегда.")
 
 
@@ -1608,6 +1970,7 @@ def draft_kb(d):
                 b(f"Протесты: {str(d.get('pw', 0)) + ' мин' if d.get('pw') else 'нет'}", "sd:pw")],
                [b(f"Заявки: {'с одобрением' if d.get('appr') else 'сразу'}", "sd:appr"),
                 b(f"Тест: {'да' if d.get('test') else 'нет'}", "sd:test")],
+               [b(f"Класс: {CLASSES.get(d.get('cls') or 'proam')[0]}", "sd:cls")] if d.get("qual") else None,
                [b("✏️ Название", "sd:title"), b("📅 Дата", "sd:date")],
                [b("✅ Сохранить" if d.get("edit") else "✅ Создать", "sd:ok"), b("✖️ Отмена", "sd:no")]])
 
@@ -1697,6 +2060,44 @@ def on_text(msg, uid, aw, text):
             disqualify(st, int(x), text.strip(), uid)
             return send(uid, f"⛔ {nick(int(x))} дисквалифицирован с {st['title']}.")
         return
+    if aw == "duel_who" and pilot(uid):
+        x = find_pilot_uid(text)
+        if not x or x == uid:
+            u["aw"] = aw
+            return send(uid, "Не нашёл такого пилота. Напиши ник в игре или @ник (отмена — /cancel):")
+        if str(x) in S["banned"] or str(uid) in S["banned"]:
+            return send(uid, "Отстранённые от чемпионата пилоты в дуэлях не участвуют.")
+        if duel_of(uid) or duel_of(x):
+            return send(uid, f"У {'тебя' if duel_of(uid) else nick(x)} уже есть незавершённая дуэль.")
+        if in_stage_now(uid) or in_stage_now(x):
+            return send(uid, "Сейчас у кого-то из вас идёт этап — вызови после него.")
+        d = duel_new(uid, x)
+        send(x, f"⚔️ {nick(uid)} (рейтинг {elo(uid)}) вызывает тебя на дуэль! Твой рейтинг: {elo(x)}.",
+             kb([[b("✅ Принять", f"dl:ok:{d['id']}"), b("❌ Отказаться", f"dl:no:{d['id']}")]]))
+        return send(uid, f"Вызов отправлен {nick(x)}. Если не ответит за сутки — дуэль отменится.")
+    if aw == "dj_add" and is_org(uid):
+        x = user_by_un(text)
+        if not x:
+            u["aw"] = aw
+            return send(uid, "Не нашёл. Судья должен сначала открыть бота. Напиши @ник:")
+        if x not in S["djudges"]:
+            S["djudges"].append(x)
+            send(x, "⚔️ Тебя назначили судьёй рейтинговых дуэлей. Заезды будут приходить сюда.")
+        return send(uid, f"✅ {nick(x)} — судья дуэлей.")
+    if aw == "warn" and is_org(uid):
+        x = find_pilot_uid(text)
+        if not x:
+            u["aw"] = aw
+            return send(uid, "Не нашёл пилота. Напиши его ник в игре или @ник:")
+        u["aw"] = f"warnwhy:{x}"
+        return send(uid, f"За что предупреждение {nick(x)}?")
+    if aw.startswith("warnwhy:") and is_org(uid):
+        x = int(aw.split(":")[1])
+        warn(x, text.strip(), uid)
+        return send(uid, f"⚠️ {nick(x)} получил предупреждение.")
+    if aw == "chn_set":
+        u["aw"] = aw
+        return send(uid, "Перешли пост из канала или напиши его @адрес. Отмена — /cancel.")
     if aw == "ban" and is_org(uid):
         x = find_pilot_uid(text)
         if not x:
@@ -1787,7 +2188,14 @@ def on_text(msg, uid, aw, text):
     if aw in ("draft_title", "draft_date"):
         d = u.get("draft")
         if d:
-            d["title" if aw == "draft_title" else "date"] = text.strip()[:60]
+            if aw == "draft_title":
+                d["title"] = text.strip()[:60]
+            else:
+                ts = parse_start(text)
+                d["start"] = ts
+                d["date"] = fmt_start(ts) if ts else text.strip()[:60]
+                send(uid, f"📅 Старт: {fmt_start(ts)}. Напомню записавшимся за сутки и за час, судьям — за 15 минут." if ts else
+                     "Сохранил как текст. Чтобы бот напоминал перед стартом, напиши дату так: 25.11 19:00 (время московское).")
             return send(uid, draft_text(d), draft_kb(d))
     if aw.startswith("judge_add:"):
         st = S["stages"].get(aw.split(":")[1])
@@ -1849,6 +2257,26 @@ def on_text(msg, uid, aw, text):
                 mark_videos(qfu)
             return qual_submit(uid, st, up, score)
         return send(uid, "Квалификация уже закрыта.")
+    if aw.startswith("qcrit:"):
+        _, sid, pu = aw.split(":")
+        st = S["stages"].get(sid)
+        run = st["qruns"].get(pu) if st else None
+        c = cls_of(st) if st else CLASSES["proam"]
+        try:
+            vals = [float(x) for x in text.replace(",", ".").split()]
+        except ValueError:
+            vals = []
+        if len(vals) != 3 or any(v < 0 for v in vals) or vals[0] > c[1] or vals[1] > c[2] or vals[2] > c[3]:
+            u["aw"] = aw
+            return send(uid, f"Нужно три числа: траектория до {c[1]}, угол до {c[2]}, стиль до {c[3]}. Например: {c[1] - 6} {c[2] - 4} {c[3] - 5}")
+        if run and run["st"] == "wait" and st["state"] == "qual":
+            total = round(sum(vals), 1)
+            run.update(score=total, st="ok", judge=uid, fixed=True, crit=vals)
+            br = f"траектория {vals[0]:g}/{c[1]} · угол {vals[1]:g}/{c[2]} · стиль {vals[2]:g}/{c[3]} = {total:g}"
+            qual_close_msgs(st, int(pu), f"📐 Квалификация {nick(int(pu))}: {br} ({nick(uid)})")
+            send(int(pu), f"✅ Квалификация засчитана по критериям: {br}.")
+            return send(uid, f"Записал: {br}.")
+        return send(uid, "Эта квалификация уже проверена.")
     if aw.startswith("qfix:"):
         _, sid, pu = aw.split(":")
         st = S["stages"].get(sid)
@@ -1924,7 +2352,10 @@ def handle(msg):
     chat = msg.get("chat", {})
     frm = msg.get("from")
     if not frm or chat.get("type") != "private":
-        if BOT_USERNAME and (msg.get("text") or "").startswith("/") and BOT_USERNAME.lower() in (msg.get("text") or "").lower():
+        gtext = (msg.get("text") or "").strip()
+        if gtext.split("@")[0].split(" ")[0].lower() == "/top":
+            return send(chat["id"], top_text(), kb([[url_btn("📱 Все таблицы", APP_URL)]]))
+        if BOT_USERNAME and gtext.startswith("/") and BOT_USERNAME.lower() in gtext.lower():
             send(chat["id"], f"Всё про чемпионат — в личке: https://t.me/{BOT_USERNAME}")
         return
     uid = frm["id"]
@@ -1946,6 +2377,14 @@ def handle(msg):
         pilot(uid)["photo"] = {"k": f"p{next_id('img')}", "f": msg["photo"][-1]["file_id"]}
         send(uid, "📸 Фото машины сохранено — оно в твоём профиле в приложении.")
         return card_menu(uid)
+    if aw == "chn_set" and is_owner(uid):
+        ch = msg.get("forward_from_chat") or (msg.get("forward_origin") or {}).get("chat")
+        if not ch and text.strip().startswith("@"):
+            ch = api("getChat", {"chat_id": text.strip().split()[0]}).get("result")
+        if isinstance(ch, dict) and ch.get("type") == "channel":
+            return set_channel(uid, ch["id"], ch.get("title"))
+        if ch or text.strip().startswith("@"):
+            return send(uid, "Это не канал или бот его не видит. Перешли пост именно из канала чемпионата.")
     if aw == "car_photo" and uid == CAR_ADMIN and car_photo_id(msg):
         u.pop("aw", None)
         S["content"]["car"]["photos"] = [{"k": f"c{next_id('img')}", "f": car_photo_id(msg)}]
@@ -1985,14 +2424,19 @@ def handle(msg):
         return home(uid)
     if cmd == "/help":
         return send(uid, HELP)
+    if cmd == "/top":
+        return send(uid, top_text(), kb([app_row()]))
     if cmd == "/myid":
         return send(uid, f"Твой Telegram ID: {uid}")
     if cmd == "/club":
         return club_menu(uid)
     if cmd == "/stages":
         return stages_menu(uid)
+    if cmd == "/duel":
+        return duel_menu(uid)
     if cmd == "/judge":
-        if not any(uid in st["judges"] for st in stage_list(["reg", "qual", "run"])):
+        if not any(uid in st["judges"] for st in stage_list(["reg", "qual", "run"])) and \
+                not any(uid in d["judges"] for d in S.get("duels", {}).values() if d["state"] == "run"):
             return send(uid, "Ты не судья ни одного идущего этапа.")
         return judge_resend(uid)
     if cmd == "/carphoto" and uid == CAR_ADMIN:
@@ -2029,6 +2473,8 @@ def deep_start(uid, arg):
         return my_pair(uid)
     if parts[0] == "judge":
         return judge_resend(uid)
+    if parts[0] == "duel":
+        return duel_menu(uid)
     if parts[0] == "org" and is_org(uid):
         return org_menu(uid)
     home(uid)
@@ -2060,6 +2506,8 @@ def handle_cb(cq):
                               "pphoto": "Пришли фото своей машины (лучше в ливрее) одним фото."}[p[1]])
         if p[1] == "pair":
             return my_pair(uid)
+        if p[1] == "duel":
+            return duel_menu(uid)
         return {"stages": stages_menu, "club": club_menu, "help": lambda x: send(x, HELP),
                 "org": lambda x: org_menu(x) if is_org(x) else None}.get(p[1], home)(uid)
     if k in ("rg", "ul"):
@@ -2101,6 +2549,34 @@ def handle_cb(cq):
         return judge_vote(cq, p[1], p[2], p[3], p[4])
     if k == "jw":
         return judge_reason(cq, p[1], p[2], p[3], p[4])
+    if k == "dl":
+        answer(cq)
+        if len(p) > 1 and p[1] == "new":
+            if duel_of(uid):
+                return duel_menu(uid)
+            user(uid)["aw"] = "duel_who"
+            return send(uid, "Кого вызываешь? Ник в игре или @ник:")
+        d = S.get("duels", {}).get(p[2]) if len(p) > 2 else None
+        if not d or d["state"] != "ask" or uid not in (d["a"], d["b"]):
+            return send(uid, "Этот вызов уже не актуален.")
+        if p[1] == "ok" and uid == d["b"]:
+            if in_stage_now(d["a"]) or in_stage_now(d["b"]):
+                return send(uid, "Сейчас у кого-то из вас идёт этап — примите дуэль после него.")
+            duel_go(d)
+            return
+        if p[1] == "no":
+            d["state"] = "off"
+            other = d["a"] if uid == d["b"] else d["b"]
+            send(other, f"⚔️ {nick(uid)} " + ("отказался от дуэли." if uid == d["b"] else "отменил вызов."))
+            return send(uid, "Дуэль отменена.")
+        return
+    if k == "ci":
+        st = S["stages"].get(p[1])
+        if not st or uid not in st["reg"] or st["state"] not in ("reg", "qual", "run"):
+            return answer(cq, "Ты не в списке этого этапа.", True)
+        if uid not in st.setdefault("ci", []):
+            st["ci"].append(uid)
+        return answer(cq, "✅ Отметил: ты на месте. Удачи на трассе!", True)
     if k == "jq":
         return qual_judge(cq, p[1], int(p[2]), p[3])
     if k == "pr":
@@ -2207,7 +2683,8 @@ def org_cb(cq, uid, p):
         send(x, "❌ Организатор не разрешил переход в другой клуб посреди сезона.")
         return answer(cq, "Отказано.")
     if k == "st":
-        u["draft"] = {"title": f"Этап {S['seq'].get('stage', 0) + 1}", "date": "", "size": 32, "de": False, "qual": True, "jn": 3, "dl": 0, "pw": 0, "test": False, "appr": False}
+        u["draft"] = {"title": f"Этап {S['seq'].get('stage', 0) + 1}", "date": "", "size": 32, "de": False, "qual": True, "jn": 3, "dl": 0, "pw": 0,
+                      "test": False, "appr": False, "cls": "proam"}
         answer(cq)
         return send(uid, draft_text(u["draft"]), draft_kb(u["draft"]))
     if k == "sd":
@@ -2227,10 +2704,14 @@ def org_cb(cq, uid, p):
             d["pw"] = PW_OPTS[(PW_OPTS.index(d.get("pw", 0)) + 1) % len(PW_OPTS)]
         elif act in ("test", "appr"):
             d[act] = not d.get(act)
+        elif act == "cls":
+            order = list(CLASSES)
+            d["cls"] = order[(order.index(d.get("cls") or "proam") + 1) % len(order)]
         elif act in ("title", "date"):
             u["aw"] = f"draft_{act}"
             answer(cq)
-            return send(uid, "Название этапа:" if act == "title" else "Дата и время (как написать — свободно):")
+            return send(uid, "Название этапа:" if act == "title" else
+                        "Дата и время старта по Москве, например: 25.11 19:00 или 25 ноября 19:00")
         elif act == "no":
             u.pop("draft", None)
             answer(cq)
@@ -2241,7 +2722,9 @@ def org_cb(cq, uid, p):
                 st = S["stages"].get(d["edit"])
                 if not st or st["state"] not in ("draft", "reg"):
                     return answer(cq, "Этап уже начался — настройки менять нельзя.", True)
-                st.update({x: d[x] for x in ("title", "date", "size", "de", "qual", "jn", "dl", "pw", "test", "appr")})
+                if d.get("start") != st.get("start"):
+                    st["rem"] = {}  # время старта поменялось — напоминания пойдут заново
+                st.update({x: d.get(x) for x in ("title", "date", "size", "de", "qual", "jn", "dl", "pw", "test", "appr", "start", "cls")})
                 log(uid, f"{st['title']}: изменены настройки")
             else:
                 st = new_stage(d)
@@ -2336,6 +2819,60 @@ def org_cb(cq, uid, p):
     if k == "js":
         answer(cq)
         return send(uid, judge_stats_text(), kb([[b("⬅️ Назад", "m:org")]]))
+    if k == "du":
+        answer(cq)
+        if len(p) > 2 and p[1] == "x":
+            d = S["duels"].get(p[2])
+            if d and d["state"] in ("ask", "run"):
+                d["state"] = "off"
+                for x in (d["a"], d["b"]):
+                    send(x, f"⚔️ Организаторы отменили {d['title']}.")
+        if len(p) > 1 and p[1] == "add":
+            u["aw"] = "dj_add"
+            return send(uid, "Напиши @ник судьи дуэлей:")
+        if len(p) > 2 and p[1] == "rm" and int(p[2]) in S["djudges"]:
+            S["djudges"].remove(int(p[2]))
+        act = [d for d in S["duels"].values() if d["state"] in ("ask", "run")]
+        rows = [[b(f"✖️ {d['title']}", f"du:x:{d['id']}")] for d in act[:15]]
+        rows += [[b(f"✖️ судья {nick(j)}", f"du:rm:{j}")] for j in S["djudges"]]
+        js = ", ".join(nick(j) for j in S["djudges"]) or "не назначены — решают организаторы"
+        return send(uid, f"⚔️ Дуэли: идут {sum(d['state'] == 'run' for d in act)}, ждут ответа {sum(d['state'] == 'ask' for d in act)}.\n"
+                         f"Судьи дуэлей: {js}", kb(rows + [[b("➕ Судья дуэлей", "du:add")], [b("⬅️ Назад", "m:org")]]))
+    if k == "chn" and is_owner(uid):
+        answer(cq)
+        if len(p) > 1 and p[1] == "set":
+            u["aw"] = "chn_set"
+            return send(uid, "1) Добавь бота в канал администратором с правом публиковать сообщения.\n"
+                             "2) Перешли сюда любой пост из канала — или напиши @адрес канала. Отмена — /cancel.")
+        if len(p) > 1 and p[1] == "off":
+            S["channel"] = None
+            send(uid, "Канал отключён — бот больше ничего туда не публикует.")
+        if len(p) > 1 and p[1] == "test":
+            ok = post_channel(f"🏁 {TITLE}: бот на связи. Здесь будут регистрация, сетки и итоги этапов.", links())
+            send(uid, "✅ Тестовый пост опубликован." if ok else "Не получилось опубликовать — проверь, что бот админ в канале.")
+        return channel_menu(uid)
+    if k == "bk" and is_owner(uid):
+        answer(cq, "Отправляю…")
+        return backup(uid)
+    if k == "wn":
+        answer(cq)
+        if len(p) > 1 and p[1] == "add":
+            u["aw"] = "warn"
+            return send(uid, "Кому предупреждение? Ник в игре или @ник:")
+        if len(p) > 2 and p[1] == "rm":
+            ws = S.get("warns", {}).get(p[2], [])
+            cur = [w for w in ws if w.get("season", 1) == cur_season()]
+            if cur:
+                ws.remove(cur[-1])
+                send(int(p[2]), "✅ Организаторы сняли с тебя последнее предупреждение.")
+        rows, lines = [], []
+        for x, ws in S.get("warns", {}).items():
+            cur = [w for w in ws if w.get("season", 1) == cur_season()]
+            if cur:
+                lines.append(f"• {nick(int(x))}: {len(cur)} — " + "; ".join(w["why"] for w in cur))
+                rows.append([b(f"↩️ Снять у {nick(int(x))}", f"wn:rm:{x}")])
+        return send(uid, "⚠️ Предупреждения в этом сезоне:\n" + ("\n".join(lines) or "ни у кого"),
+                    kb(rows[:20] + [[b("➕ Выдать предупреждение", "wn:add")], [b("⬅️ Назад", "m:org")]]))
     if k == "nd":
         st = S["stages"].get(p[1])
         m = mget(st, p[2]) if st else None
@@ -2421,7 +2958,8 @@ def stage_action(cq, uid, st, act, extra):
     if act == "edit":
         if s not in ("draft", "reg"):
             return answer(cq, "Этап уже начался.", True)
-        user(uid)["draft"] = {x: st.get(x, 0) for x in ("title", "date", "size", "de", "qual", "jn", "dl", "pw", "test", "appr")} | {"edit": st["id"]}
+        user(uid)["draft"] = {x: st.get(x, 0) for x in ("title", "date", "size", "de", "qual", "jn", "dl", "pw", "test", "appr")} | \
+            {"edit": st["id"], "start": st.get("start"), "cls": st.get("cls", "proam")}
         answer(cq)
         return send(uid, draft_text(user(uid)["draft"]), draft_kb(user(uid)["draft"]))
     if act == "del" and s == "draft":
@@ -2436,6 +2974,11 @@ def stage_action(cq, uid, st, act, extra):
             send(int(x), f"🏁 Открыта регистрация: {st['title']}" + (f" · {st['date']}" if st.get("date") else "")
                  + f"\nТоп-{st['size']}, {'с квалификацией' if st['qual'] else 'без квалификации'}.",
                  kb([[b("✋ Участвую", f"rg:{st['id']}")]]))
+        if not st.get("test"):
+            post_channel(f"🏁 Открыта регистрация: {st['title']}" + (f"\n📅 Старт: {fmt_start(st['start'])}" if st.get("start") else
+                                                                     (f" · {st['date']}" if st.get("date") else ""))
+                         + f"\nТоп-{st['size']}, {'с квалификацией' if st['qual'] else 'без квалификации'}. Соло или в составе клуба.",
+                         links(st["id"]))
         answer(cq, "Регистрация открыта")
         return stage_menu(uid, st)
     if act == "close" and s == "reg":
@@ -2488,7 +3031,7 @@ def stage_action(cq, uid, st, act, extra):
     if act == "list":
         answer(cq)
         rows = [[b(f"✖️ {nick(x)}", f"sa:{st['id']}:kick:{x}") for x in st["reg"][i:i + 2]] for i in range(0, len(st["reg"]), 2)]
-        return send(uid, f"👥 {st['title']}: {len(st['reg'])}\n" + "\n".join(f"{i + 1}. {car_mark(x)} {nick(x)}" for i, x in enumerate(st["reg"]))
+        return send(uid, f"👥 {st['title']}: {len(st['reg'])}\n" + "\n".join(f"{i + 1}. {car_mark(x)} {nick(x)}" + (" · на месте" if x in st.get("ci", []) else "") for i, x in enumerate(st["reg"]))
                     + "\n\n✅ машина по регламенту · ❌ нет · ❓ вес вне таблицы · ▫️ не заполнил анкету",
                     kb(rows[:40] + [[b("⬅️ К этапу", f"sm:{st['id']}")]]))
     if act == "kick" and s in ("reg", "qual"):
@@ -2619,6 +3162,37 @@ def remind_judges(now):
     return changed
 
 
+def stage_reminders(now):
+    changed = False
+    for st in stage_list(["reg", "qual", "run"]):
+        t0 = st.get("start")
+        if not t0:
+            continue
+        rem, left = st.setdefault("rem", {}), t0 - now
+        if 3600 < left <= 86400 and not rem.get("d"):
+            rem["d"] = 1
+            changed = True
+            for x in st["reg"]:
+                send(x, f"⏰ Завтра — {st['title']}, старт {fmt_start(t0)}. Ты в списке участников.")
+        if 0 < left <= 3600 and not rem.get("h"):
+            rem["h"] = rem["d"] = 1
+            changed = True
+            for x in st["reg"]:
+                send(x, f"⏰ Через час старт: {st['title']} ({fmt_start(t0)}). Подтверди, что ты на месте:",
+                     kb([[b("✅ Я на месте", f"ci:{st['id']}")]]))
+        if 0 < left <= 900 and not rem.get("j"):
+            rem["j"] = 1
+            changed = True
+            for j in st["judges"]:
+                send(j, f"⚖️ Через 15 минут старт {st['title']} — ты судья этапа. /judge пришлёт всё, что ждёт решения.")
+        if left <= 0 and not rem.get("s"):
+            rem.update(s=1, h=1, d=1, j=1)
+            changed = True
+            orgs_dm(f"🏁 Время старта: {st['title']}. Отметились «на месте»: {len(st.get('ci', []))} из {len(st['reg'])}.",
+                    kb([[b("⚙️ К этапу", f"sm:{st['id']}")]]))
+    return changed
+
+
 def scheduler_loop():
     while True:
         try:
@@ -2633,7 +3207,11 @@ def scheduler_loop():
                     pass
             with LOCK:
                 load_state()
-                if DB_OK and (remind_judges(time.time()) | deadlines(time.time())):
+                now = time.time()
+                if DB_OK and OWNER_IDS and now - S.get("bk_t", 0) > 86400:
+                    backup()
+                    save_state()
+                if DB_OK and (remind_judges(now) | deadlines(now) | stage_reminders(now) | duel_tick(now) | ach_sweep(now)):
                     save_state()
         except Exception as e:
             print("Ошибка планировщика:", repr(e))
@@ -2765,7 +3343,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 MENU = [("menu", "Главное меню"), ("stages", "Этапы и регистрация"), ("club", "Мой клуб"),
-        ("help", "Как это работает"), ("cancel", "Отменить ввод"), ("judge", "Судьям: прислать заезды ещё раз"), ("myid", "Мой Telegram ID")]
+        ("help", "Как это работает"), ("cancel", "Отменить ввод"), ("judge", "Судьям: прислать заезды ещё раз"), ("top", "Таблица сезона"),
+         ("duel", "Рейтинговая дуэль"), ("myid", "Мой Telegram ID")]
 
 
 def setup():

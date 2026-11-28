@@ -35,6 +35,11 @@ def fake_post(url, json=None, **kw):
         return Resp({"ok": False, "description": "Bad Request: can't parse inline keyboard button"})
     if method == "sendMessage":
         return Resp({"ok": True, "result": {"message_id": 1000 + len(calls)}})
+    if method == "getChatMember":
+        ok_admin = (json or {}).get("chat_id") != -100999  # канал -100999 — бот там не админ
+        return Resp({"ok": True, "result": {"status": "administrator" if ok_admin else "member", "can_post_messages": ok_admin}})
+    if method == "getChat":
+        return Resp({"ok": True, "result": {"id": -100777, "title": "KRC Channel", "type": "channel"}})
     if method == "getFile":
         return Resp({"ok": True, "result": {"file_path": "photos/x.jpg"}})
     return Resp({"ok": True, "result": True})
@@ -479,7 +484,7 @@ c = tap(12, f"pv:{st5}:U1-1:keep")
 m5 = bot.mget(S()["stages"][st5], "U1-1")
 check("protest rejected -> decision stays", m5["done"] and m5["w"] == A5 and m5["protest"]["res"] == "keep")
 bot.load_state(); m52 = bot.mget(bot.S["stages"][st5], "U1-2"); bot.set_result(bot.S["stages"][st5], m52, "a"); bot.save_state()
-c = tap(m52["l"], f"pr:{st5}:U1-2"); check("no protest after technical result", "вышло" in texts(c))
+c = tap(m52["l"], f"pr:{st5}:U1-2"); check("no protest after technical result", "техническое решение" in str(c))
 d5 = [x for x in bot.public_data()["stages"] if x["id"] == st5][0]
 check("public data: deadline and protest", d5["dl"] == 30 and d5["matches"][0]["protest"]["res"] == "keep")
 
@@ -786,6 +791,212 @@ check("card prepared", job and job[0] == 150 and job[1].startswith(b"\xff\xd8") 
 calls.clear(); ok = bot.send_photo(*job); check("card sent as photo", ok and any(m == "sendPhoto" for m, p_ in calls))
 job2, err = bot.card_prepare({"init": init_for(150), "sid": st13, "img": jpg}); check("card rate limited", job2 is None and "20 секунд" in err)
 job3, err = bot.card_prepare({"init": init_for(150, bad=True), "sid": st13, "img": jpg}); check("card needs Telegram", job3 is None)
+# ---------- время старта, напоминания, «я на месте» ----------
+base = bot.calendar.timegm((2026, 11, 20, 9, 0, 0))  # 20 ноября 2026, 12:00 МСК
+check("start parsed: 25.11 19:00", bot.parse_start("25.11 19:00", base) == bot.calendar.timegm((2026, 11, 25, 16, 0, 0)))
+check("start parsed: 25 ноября 19:00", bot.parse_start("в субботу 25 ноября в 19:00", base) == bot.calendar.timegm((2026, 11, 25, 16, 0, 0)))
+check("past date goes to next year", bot.parse_start("1.01 10:00", base) == bot.calendar.timegm((2027, 1, 1, 7, 0, 0)))
+check("explicit year", bot.parse_start("25.11.2027 19:00", base) == bot.calendar.timegm((2027, 11, 25, 16, 0, 0)))
+check("no time or date -> None", bot.parse_start("завтра вечером", base) is None and bot.parse_start("19:00", base) is None
+      and bot.parse_start("25.11", base) is None)
+check("start formatted", bot.fmt_start(bot.calendar.timegm((2026, 11, 25, 16, 0, 0))) == "25 ноября, 19:00 МСК")
+bot.load_state()
+for x in bot.S["stages"].values():
+    if x["state"] in ("qual", "run", "reg"):
+        x["state"] = "done" if x["state"] != "reg" else "draft"
+bot.save_state()
+g = time.gmtime(time.time() + bot.MSK + 3 * 86400)
+tap(2, "st:new"); tap(2, "sd:qual"); tap(2, "sd:date"); c = dm(2, f"{g.tm_mday}.{g.tm_mon} 19:00")
+check("draft gets start time", "Старт:" in texts(c) and "МСК" in texts(c))
+c = tap(2, "sd:ok"); st14 = max(S()["stages"], key=int)
+check("stage saved with start", S()["stages"][st14]["start"] and "МСК" in S()["stages"][st14]["date"])
+c = tap(2, f"sa:{st14}:edit"); tap(2, "sd:ok")
+check("edit keeps start", S()["stages"][st14]["start"])
+tap(2, f"sa:{st14}:open")
+for u_ in (160, 161):
+    tap(u_, f"rg:{st14}")
+tap(2, f"sj:{st14}:add"); dm(2, "@user11")
+c = tap(2, f"sm:{st14}"); check("readiness shows start", "📅 Старт:" in texts(c))
+bot.load_state(); t0 = time.time(); bot.S["stages"][st14]["start"] = t0 + 23 * 3600; bot.save_state()
+calls.clear(); bot.load_state(); bot.stage_reminders(t0); bot.save_state()
+check("day-before reminder", len([q for m, q in calls if "Завтра" in q.get("text", "")]) == 2)
+calls.clear(); bot.load_state(); bot.stage_reminders(t0); bot.save_state(); check("day reminder once", not calls)
+bot.load_state(); bot.S["stages"][st14]["start"] = t0 + 50 * 60; bot.save_state()
+calls.clear(); bot.load_state(); bot.stage_reminders(t0); bot.save_state()
+check("hour-before reminder with check-in", len([q for m, q in calls if "Через час" in q.get("text", "")]) == 2 and f"ci:{st14}" in btns(calls))
+c = dm(160, "/menu"); check("menu offers check-in", f"ci:{st14}" in btns(c))
+c = tap(160, f"ci:{st14}"); check("check-in saved", 160 in S()["stages"][st14]["ci"] and "на месте" in str(c))
+c = tap(150, f"ci:{st14}"); check("not registered cannot check in", 150 not in S()["stages"][st14]["ci"])
+c = dm(160, "/menu"); check("no check-in button after check-in", f"ci:{st14}" not in btns(c))
+bot.load_state(); bot.S["stages"][st14]["start"] = t0 + 10 * 60; bot.save_state()
+calls.clear(); bot.load_state(); bot.stage_reminders(t0); bot.save_state()
+check("judges reminded 15 min before", any(q.get("chat_id") == 11 and "15 минут" in q.get("text", "") for m, q in calls))
+bot.load_state(); bot.S["stages"][st14]["start"] = t0 - 30; bot.save_state()
+calls.clear(); bot.load_state(); bot.stage_reminders(t0); bot.save_state()
+check("organizers told at start", any("Время старта" in q.get("text", "") and "1 из 2" in q.get("text", "") for m, q in calls))
+c = tap(2, f"sa:{st14}:list"); check("list shows who is here", "на месте" in texts(c))
+d14 = [x for x in bot.public_data()["stages"] if x["id"] == st14][0]
+check("start and check-ins in app data", d14["start"] and d14["ci"] == 1)
+# ---------- канал, бэкап, /top, предупреждения ----------
+c = tap(2, "chn"); check("only owner manages channel", not any("Канал чемпионата" in q.get("text", "") for m, q in c))
+c = dm(1, "/admin"); check("owner sees channel and backup", "chn" in btns(c) and "bk" in btns(c) and "wn" in btns(c))
+tap(1, "chn:set"); c = dm(1, "", forward_from_chat={"id": -100999, "title": "Чужой", "type": "channel"})
+check("channel without admin rights refused", S()["channel"] is None and "не админ" in texts(c))
+c = dm(1, "", forward_from_chat={"id": -100555, "title": "KRC News", "type": "channel"})
+check("channel connected by forward", S()["channel"]["id"] == -100555 and "подключён" in texts(c))
+tap(1, "chn:set"); c = dm(1, "@krc_channel"); check("channel connected by @name", S()["channel"]["id"] == -100777)
+c = tap(1, "chn:test"); check("test post to channel", any(q.get("chat_id") == -100777 for m, q in c))
+# автопосты
+bot.load_state()
+for x in bot.S["stages"].values():
+    if x["state"] in ("qual", "run", "reg"):
+        x["state"] = "done" if x["state"] != "reg" else "draft"
+bot.save_state()
+tap(2, "st:new"); tap(2, "sd:qual"); tap(2, "sd:jn"); tap(2, "sd:ok"); st15 = max(S()["stages"], key=int)
+c = tap(2, f"sa:{st15}:open")
+ch = [q for m, q in c if q.get("chat_id") == -100777]
+check("channel: registration post with sign-up link", ch and "Открыта регистрация" in ch[0]["text"]
+      and any(f"rg_{st15}" in (x.get("url") or "") for row in ch[0]["reply_markup"]["inline_keyboard"] for x in row))
+for u_ in (160, 161, 103, 104):
+    tap(u_, f"rg:{st15}")
+tap(2, f"sj:{st15}:add"); dm(2, "@user11")
+c = tap(2, f"sa:{st15}:close"); c = tap(2, f"sa:{st15}:br")
+check("channel: bracket post", any(q.get("chat_id") == -100777 and "сетка готова" in q.get("text", "") for m, q in c))
+calls.clear(); run_all(st15)
+check("channel: final post", any(q.get("chat_id") == -100777 and "Финал" in q.get("text", "") for m, q in calls))
+check("channel: results post", any(q.get("chat_id") == -100777 and "Итоги" in q.get("text", "") for m, q in calls))
+tap(2, "nw:add"); c = dm(2, "Следующий этап в субботу!")
+check("channel: news post", any(q.get("chat_id") == -100777 and "субботу" in q.get("text", "") for m, q in calls + c))
+jpg2 = "data:image/jpeg;base64," + base64.b64encode(b"\xff\xd8\xff\xe0" + b"1" * 100).decode()
+bot._card_t.clear()
+job, err = bot.card_prepare({"init": init_for(150), "sid": st15, "img": jpg2, "to": "channel"}); check("non-organizer cannot post card to channel", job is None)
+bot._card_t.clear()
+job, err = bot.card_prepare({"init": init_for(2), "sid": st15, "img": jpg2, "to": "channel"}); check("organizer posts card to channel", job and job[0] == -100777)
+tap(1, "chn:off"); check("channel disconnected", S()["channel"] is None)
+# бэкап
+c = tap(1, "bk"); check("manual backup sent as file", any(m == "sendDocument" for m, q in c) and S()["bk_t"] > 0)
+c = tap(2, "bk"); check("only owner gets backups", not any(m == "sendDocument" for m, q in c))
+# /top
+c = dm(103, "/top"); check("/top in private", "Личный зачёт" in texts(c))
+calls.clear(); bot.load_state(); bot.handle({"message_id": 5, "chat": {"id": -500, "type": "supergroup"}, "from": U(103), "text": "/top@krc_bot"}); bot.save_state()
+check("/top in group chat", any(q.get("chat_id") == -500 and "Личный зачёт" in q.get("text", "") for m, q in calls))
+# предупреждения
+tap(2, "wn:add"); dm(2, "Pilot104"); c = dm(2, "Опоздание на старт")
+check("warning issued", len(S()["warns"]["104"]) == 1 and any(q.get("chat_id") == 104 and "Предупреждение" in q.get("text", "") for m, q in c))
+tap(2, "wn:add"); dm(2, "Pilot104"); c = dm(2, "Неспортивное поведение")
+check("second warning alerts organizers", any("2 предупреждения" in q.get("text", "") for m, q in c))
+check("warnings in app data", [p_ for p_ in bot.public_data()["pilots"] if p_["nick"] == "Pilot104"][0]["warns"] == ["Опоздание на старт", "Неспортивное поведение"])
+c = tap(2, "wn:rm:104"); check("warning removed", len(S()["warns"]["104"]) == 1)
+c = tap(150, "wn:add"); check("non-organizer cannot warn", S()["users"].get("150", {}).get("aw") != "warn")
+# ---------- квалификация по критериям регламента ----------
+bot.load_state()
+for x in bot.S["stages"].values():
+    if x["state"] in ("qual", "run", "reg"):
+        x["state"] = "done" if x["state"] != "reg" else "draft"
+bot.save_state()
+tap(2, "st:new"); tap(2, "sd:cls"); c = tap(2, "sd:cls")
+check("class switch in draft", "Класс: Pro\"" in str(c).replace("'", '"') and "траектория 30 · угол 30 · стиль 40" in texts(c))
+tap(2, "sd:jn"); tap(2, "sd:ok"); st16 = max(S()["stages"], key=int)
+check("stage keeps class", S()["stages"][st16]["cls"] == "pro")
+tap(2, f"sj:{st16}:add"); dm(2, "@user11")
+tap(2, f"sa:{st16}:open"); tap(160, f"rg:{st16}"); tap(161, f"rg:{st16}")
+c = tap(2, f"sa:{st16}:qual"); check("qualification started", S()["stages"][st16]["state"] == "qual")
+dm(160, video={"file_id": "qv160", "file_unique_id": "QV160"}); c = dm(160, "90")
+check("judge gets criteria button", f"jq:{st16}:160:crit" in btns(c))
+c = tap(11, f"jq:{st16}:160:crit"); check("criteria prompt with weights", "из 30" in texts(c) and "из 40" in texts(c))
+c = dm(11, "31 20 20"); check("criteria over max refused", "Нужно три числа" in texts(c) and S()["stages"][st16]["qruns"]["160"]["st"] == "wait")
+c = dm(11, "28 25 35")
+run = S()["stages"][st16]["qruns"]["160"]
+check("criteria scored", run["st"] == "ok" and run["score"] == 88 and run["crit"] == [28, 25, 35]
+      and any(q.get("chat_id") == 160 and "= 88" in q.get("text", "") for m, q in c))
+d16 = [x for x in bot.public_data()["stages"] if x["id"] == st16][0]
+check("criteria in app data", d16["qruns"][0][3] == [28, 25, 35] and d16["w"] == ["Pro", 30, 30, 40])
+c = tap(11, f"jq:{st16}:160:crit"); check("cannot rescore checked run", "уже проверена" in str(c))
+# ---------- рейтинговые дуэли ----------
+c = dm(160, "/menu"); check("duel button in menu", "m:duel" in btns(c))
+c = tap(160, "m:duel"); check("duel menu", "dl:new" in btns(c) and "1000" in texts(c))
+tap(160, "dl:new"); c = dm(160, "LateOne")
+check("no duel during stage qualification", "идёт этап" in texts(c) and not S().get("duels"))
+bot.load_state(); bot.S["stages"][st16]["state"] = "done"; bot.save_state()
+tap(160, "dl:new"); c = dm(160, "SoloNew"); check("cannot duel yourself", "Не нашёл" in texts(c))
+c = dm(160, "LateOne")
+dd = next(iter(S()["duels"].values()))
+did = dd["id"]
+check("challenge sent", dd["state"] == "ask" and f"dl:ok:{did}" in btns([(m, q) for m, q in c if q.get("chat_id") == 161]))
+tap(103, "dl:new"); c = dm(103, "LateOne"); check("one open duel per pilot", "незавершённая дуэль" in texts(c))
+c = tap(160, f"dl:ok:{did}"); check("only the challenged accepts", S()["duels"][did]["state"] == "ask")
+c = tap(161, f"dl:ok:{did}")
+dd = S()["duels"][did]
+check("duel accepted", dd["state"] == "run" and dd["judges"] and 160 not in dd["judges"] and 161 not in dd["judges"]
+      and any("Дуэль:" in q.get("text", "") for m, q in c))
+c = dm(160, "/menu"); check("menu shows duel pair", "m:pair" in btns(c))
+dm(160, video={"file_id": "du1", "file_unique_id": "DU1"}); tap(160, "up:lead:a")
+dm(160, video={"file_id": "du2", "file_unique_id": "DU2"}); c = tap(160, "up:send")
+jd = S()["duels"][did]["judges"][0]
+check("duel pair goes to judges", any(m == "sendMediaGroup" and q["chat_id"] == jd for m, q in c)
+      and any(x.startswith(f"jv:{did}:D:0:") for x in btns([(m, q) for m, q in c if q.get("chat_id") == jd])))
+c = dm(jd, "/judge"); check("duel in judge queue", any(m == "sendMediaGroup" for m, q in c))
+c = tap(jd, f"jv:{did}:D:0:a")
+dd = S()["duels"][did]
+check("duel decided, rating updated", dd["state"] == "done" and dd["w"] == 160 and S()["elo"]["160"] == 1016 and S()["elo"]["161"] == 984
+      and any(q.get("chat_id") == 160 and "+16" in q.get("text", "") for m, q in c))
+pd = bot.public_data()
+p160 = next(x for x in pd["pilots"] if x["nick"] == "SoloNew")
+check("duel rating in app data", p160["elo"] == 1016 and p160["dw"] == 1 and pd["duels"][0]["w"] == "a" and pd["duels"][0]["delta"] == 16)
+# отказ, истечение, отмена организатором
+tap(103, "dl:new"); dm(103, "Pilot104"); d2 = max(S()["duels"], key=lambda k: int(k[1:]))
+c = tap(104, f"dl:no:{d2}"); check("challenge declined", S()["duels"][d2]["state"] == "off" and any(q.get("chat_id") == 103 for m, q in c))
+tap(103, "dl:new"); dm(103, "Pilot104"); d3 = max(S()["duels"], key=lambda k: int(k[1:]))
+bot.load_state(); bot.S["duels"][d3]["t"] -= 90000; bot.save_state()
+calls.clear(); bot.load_state(); bot.duel_tick(time.time()); bot.save_state()
+check("unanswered challenge expires", S()["duels"][d3]["state"] == "off" and any("не ответил" in q.get("text", "") for m, q in calls))
+tap(103, "dl:new"); dm(103, "Pilot104"); d4 = max(S()["duels"], key=lambda k: int(k[1:]))
+c = tap(2, "du"); check("organizer sees duels", f"du:x:{d4}" in btns(c))
+c = tap(2, f"du:x:{d4}"); check("organizer cancels duel", S()["duels"][d4]["state"] == "off")
+tap(2, "du:add"); c = dm(2, "@user12"); check("duel judge added", 12 in S()["djudges"])
+tap(103, "dl:new"); dm(103, "Pilot104"); d5 = max(S()["duels"], key=lambda k: int(k[1:])); tap(104, f"dl:ok:{d5}")
+check("duel judges from list", S()["duels"][d5]["judges"] == [12])
+tap(2, "du:rm:12"); check("duel judge removed", 12 not in S()["djudges"])
+c = tap(150, "du"); check("non-organizer has no duel admin", not any("Судьи дуэлей" in q.get("text", "") for m, q in c))
+# ---------- достижения ----------
+bot.load_state(); bot.S["ach"] = {}; bot.S.pop("ach_init", None); bot.save_state()
+calls.clear(); bot.load_state(); bot.check_ach(160); bot.save_state()
+check("first run records old achievements silently", not any("Новое достижение" in q.get("text", "") for m, q in calls)
+      and S().get("ach_init") and isinstance(S()["ach"].get("160"), list))
+a160 = bot.achievements(160)
+check("achievement codes known", all(a in bot.ACH for a in a160))
+bot.load_state(); bot.S["elo"]["160"] = 1105; bot.save_state()
+calls.clear(); bot.load_state(); bot.check_ach(160); bot.save_state()
+check("new achievement sent once", sum("Рейтинг дуэлей 1100+" in q.get("text", "") for m, q in calls) == 1)
+calls.clear(); bot.load_state(); bot.check_ach(160); bot.save_state(); check("no repeat", not calls)
+check("achievements in app data", "elo1100" in next(x for x in bot.public_data()["pilots"] if x["nick"] == "SoloNew")["ach"])
+bot.load_state(); bot.S["ach_t"] = 0; check("hourly sweep runs", bot.ach_sweep(time.time()) is True); check("sweep waits an hour", bot.ach_sweep(time.time()) is False)
+# победа в этапе даёт достижение сразу
+bot.load_state()
+for x in bot.S["stages"].values():
+    if x["state"] in ("qual", "run", "reg"):
+        x["state"] = "done" if x["state"] != "reg" else "draft"
+bot.S["ach"]["170"] = []
+bot.save_state()
+dm(170, "/start"); tap(170, "m:pilot"); dm(170, "Rookie170"); dm(171, "/start"); tap(171, "m:pilot"); dm(171, "Rookie171")
+tap(2, "st:new"); tap(2, "sd:qual"); tap(2, "sd:jn"); tap(2, "sd:ok"); st17 = max(S()["stages"], key=int)
+tap(2, f"sj:{st17}:add"); dm(2, "@user11"); tap(2, f"sa:{st17}:open"); tap(170, f"rg:{st17}"); tap(171, f"rg:{st17}")
+tap(2, f"sa:{st17}:close"); tap(2, f"sa:{st17}:br")
+bot.load_state(); m17 = next(m for m in bot.S["stages"][st17]["matches"] if m["open"] and not m["done"] and not m["bye"])
+win17 = m17["pa"]
+dm(win17, video={"file_id": "a17", "file_unique_id": "A17"}); tap(win17, "up:lead:a")
+dm(win17, video={"file_id": "b17", "file_unique_id": "B17"}); tap(win17, "up:send")
+calls.clear(); c = tap(11, f"jv:{st17}:{m17['id']}:0:a")
+check("first win achievement on decision", any(q.get("chat_id") == win17 and "Первая победа" in q.get("text", "") for m, q in calls))
+# ---------- карточка пилота и время решений ----------
+bot._card_t.clear()
+pid170 = S()["pilots"]["170"]["pid"]
+job, err = bot.card_prepare({"init": init_for(150), "kind": "pilot", "pid": pid170, "img": jpg2})
+check("pilot card prepared", job and job[0] == 150 and "Rookie170" in job[2])
+bot._card_t.clear()
+job, err = bot.card_prepare({"init": init_for(150), "kind": "pilot", "pid": 99999, "img": jpg2}); check("unknown pilot card refused", job is None)
+d17 = [x for x in bot.public_data()["stages"] if x["id"] == st17][0]
+check("decision time in app data", any(m_["dt"] for m_ in d17["matches"] if m_["done"] and not m_["bye"]))
 check("every keyboard is valid for Telegram", not BAD_KB, BAD_KB[:5])
 print("\n".join(checks))
 failed = sum(x.startswith("FAIL") for x in checks)
